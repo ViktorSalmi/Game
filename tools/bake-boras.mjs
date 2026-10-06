@@ -17,6 +17,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 import crypto from 'node:crypto';
 fs.mkdirSync('data/cache', { recursive: true });
 // Varje svar cachas på disk, så ett avbrutet/begränsat körning kan återupptas utan att börja om.
+for (const f of fs.readdirSync('data/cache')) { const fp = 'data/cache/' + f; if (f !== 'elev.json' && fs.statSync(fp).size <= 3) fs.unlinkSync(fp); } // tomma svar kan vara timeouts
 let missing = 0;
 async function overpass(q, tries = 8) {
   const cf = 'data/cache/' + crypto.createHash('sha1').update(q).digest('hex') + '.json';
@@ -26,7 +27,11 @@ async function overpass(q, tries = 8) {
     for (const url of MIRRORS) {
       try {
         const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'evigheten-game/1.0' }, body: 'data=' + encodeURIComponent(q) });
-        if (r.ok) { const els = (await r.json()).elements || []; fs.writeFileSync(cf, JSON.stringify(els)); return els; }
+        if (r.ok) {
+          const j = await r.json();
+          if (j.remark && /error|timed out|out of memory|too many/i.test(j.remark)) { console.warn(`  ${url}: ${j.remark.slice(0, 90)} – provar igen`); await sleep(8000 * (a + 1)); continue; }
+          const els = j.elements || []; fs.writeFileSync(cf, JSON.stringify(els)); return els;
+        }
         const wait = r.status === 429 || r.status === 504 ? 30000 * (a + 1) : 5000 * (a + 1);
         console.warn(`  ${r.status} från ${url} – väntar ${wait / 1000}s (försök ${a + 1}/${tries})`);
         await sleep(wait);
@@ -82,7 +87,7 @@ const pois = poiEls.map(e => ({ n: e.tags.name, k: e.tags.tourism || e.tags.hist
 console.log(`${places.length} platser, ${pois.length} sevärdheter`);
 
 // höjd var 500:e meter (10 rutor), interpoleras i spelet
-const step = 10, ew = Math.ceil(proj.w / step) + 1, eh = Math.ceil(proj.h / step) + 1, data = new Array(ew * eh).fill(0);
+const step = 20, ew = Math.ceil(proj.w / step) + 1, eh = Math.ceil(proj.h / step) + 1, data = new Array(ew * eh).fill(0);
 const coords = [];
 for (let y = 0; y < eh; y++) for (let x = 0; x < ew; x++) {
   coords.push([BBOX.N - (y * step * CELL) / 110574, BBOX.W + (x * step * CELL) / (111320 * Math.cos((BBOX.S + BBOX.N) / 2 * Math.PI / 180))]);
@@ -97,6 +102,7 @@ async function getJson(url, what) {
       let j = null; try { j = JSON.parse(txt); } catch { /* inte JSON */ }
       if (r.ok && j && !j.error) return j;
       console.warn(`  ${what}: ${r.status} ${(j && j.reason) || txt.slice(0, 120)} (försök ${a + 1}/6)`);
+      if (r.status === 429) { await sleep(65000); continue; }
     } catch (e) { console.warn(`  ${what}: ${e.message}`); }
     await sleep(4000 * (a + 1));
   }
@@ -113,11 +119,19 @@ let gotElev = false;
 if (fs.existsSync(efile)) { try { const c = JSON.parse(fs.readFileSync(efile, 'utf8')); if (c.length === data.length) { c.forEach((v, i) => { data[i] = v; }); gotElev = true; console.log('Höjddata från cache'); } } catch { /* ignore */ } }
 if (!gotElev && !CACHE_ONLY || !gotElev && CACHE_ONLY) {
   let ok = true;
-  for (let i = 0; i < coords.length && ok; i += 50) {
-    const el = await fetchElevation(coords.slice(i, i + 50));
-    if (!el) { ok = false; break; }
+  const BATCH = 100;
+  for (let i = 0; i < coords.length && ok; i += BATCH) {
+    const bf = `data/cache/elev-${step}-${i}.json`;
+    let el = null;
+    if (fs.existsSync(bf)) { try { el = JSON.parse(fs.readFileSync(bf, 'utf8')); } catch { /* ignore */ } }
+    if (!el) {
+      el = await fetchElevation(coords.slice(i, i + BATCH));
+      if (!el) { ok = false; break; }
+      fs.writeFileSync(bf, JSON.stringify(el));
+      console.log(`  höjd ${Math.min(i + BATCH, coords.length)}/${coords.length}`);
+      await sleep(13000); // Open-Meteo: max ~600 punkter/minut
+    }
     el.forEach((v, k) => { data[i + k] = Math.round(v); });
-    await sleep(1100);
   }
   if (ok) { fs.writeFileSync(efile, JSON.stringify(data)); console.log('Höjddata klar'); }
   else { console.warn('Höjddata misslyckades – platt terräng (kartan fungerar ändå).'); data.fill(200); }

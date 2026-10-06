@@ -11,6 +11,7 @@ var town := 0
 var residents: Array = []
 var workers := 0
 var builders := 0
+var variant := ""
 
 func center() -> Vector2:
 	return Vector2(cell) + Vector2(size, size) * 0.5

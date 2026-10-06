@@ -3,7 +3,10 @@ extends Node2D
 ## Allt är platta, generiska platshållare (enkla former), inga konstverk.
 
 const Iso = preload("res://scripts/iso.gd")
+const ChunkObjects = preload("res://scripts/chunk_objects.gd")
 const CS := 32
+const TREE_SCALE := 0.30
+const OSM_EXAG := 2.4
 
 const PAL := {
 	0: Color("1f5d9c"), 1: Color("55a9db"), 2: Color("e0cf94"), 3: Color("79b24b"), 4: Color("386e34"),
@@ -29,10 +32,12 @@ var noise := FastNoiseLite.new()
 var chunks_w := 0
 var chunks_h := 0
 var ground_sprite: Sprite2D
+var sprites
 
-func setup(map_data, resmodel) -> void:
+func setup(map_data, resmodel, sprite_lib = null) -> void:
 	data = map_data
 	res = resmodel
+	sprites = sprite_lib
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	noise.frequency = 0.035
 	chunks_w = int(ceil(float(data.w) / CS))
@@ -40,6 +45,7 @@ func setup(map_data, resmodel) -> void:
 	_setup_ground()
 	add_child(ground)
 	objects.z_index = 1
+	objects.y_sort_enabled = true
 	add_child(objects)
 	res.changed.connect(func(c): dirty[c] = true)
 
@@ -333,6 +339,85 @@ func _building(v: PackedVector2Array, col: PackedColorArray, i: int) -> void:
 		_quad(v, col, A + up, B + up, C + up, D + up, roof)
 		_quad(v, col, A + up, B + up, B + up + Vector2(0, 1.5), A + up + Vector2(0, 1.5), roof.lightened(0.15))
 
+func _tree_name(x: int, y: int, salt: int) -> String:
+	var j2 := _jitter(x * 5 + 7 + salt * 3, y * 11 + 1 + salt * 13)
+	var b: int = data.biome_at(x, y)
+	var sz2: String = ["S", "M"][int(j2 * 97.0) % 2]
+	var sz3: String = ["S", "M", "L"][int(j2 * 89.0) % 3]
+	if b == 4:
+		if j2 < 0.55:
+			return "spruce_" + sz3
+		if j2 < 0.78:
+			return "pine_" + sz2
+		return "birch_" + sz2
+	return ("oak_" if j2 < 0.55 else "birch_") + sz2
+
+func _osm_building_name(kind: int, lv: int, len_m: float, j: float) -> String:
+	match kind:
+		1:
+			return "block_%s_%d" % [["cream", "brick", "grey"][int(j * 3) % 3], clampi(lv, 3, 6)]
+		2:
+			return "industrial_a" if len_m < 24.0 else "industrial_b"
+		3:
+			return "church" if j < 0.3 else "school"
+	var cols := ["red", "yellow", "white", "ochre", "grey"]
+	var sk := "S" if len_m < 9.5 else ("M" if len_m < 12.5 else "L")
+	return "house_%s_%s" % [cols[int(j * 5) % 5], sk]
+
+func _build_object_node(c: Vector2i):
+	var node = ChunkObjects.new()
+	node.sprites = sprites
+	var centre := Iso.to_screen(c.x * CS + CS * 0.5, c.y * CS + CS * 0.5)
+	node.position = centre
+	var list: Array = []   # [djup, namn, pos, skala, flip, skuggskala]
+	for ty in CS:
+		for tx in CS:
+			var x := c.x * CS + tx
+			var y := c.y * CS + ty
+			var k: int = res.kind_at(x, y)
+			if k == 0 or data.biome_at(x, y) == 10:
+				continue
+			var j := _jitter(x * 3 + 1, y * 7 + 2)
+			var j2 := _jitter(x, y * 5 + 3)
+			match k:
+				1:
+					var p := Iso.to_screen(x + 0.15 + 0.7 * j2, y + 0.15 + 0.7 * j)
+					var sc := TREE_SCALE * (0.85 + 0.3 * j)
+					list.append([x + y + 0.15 + 0.7 * (j2 + j) * 0.5, _tree_name(x, y, 0), p, sc, j > 0.5, sc * 0.55])
+					if data.biome_at(x, y) == 4:
+						var j3 := _jitter(x * 3 + 18, y * 7 + 7)
+						var j4 := _jitter(x + 9, y * 5 + 3)
+						var p2 := Iso.to_screen(x + 0.15 + 0.7 * j4, y + 0.15 + 0.7 * j3)
+						var sc2 := TREE_SCALE * (0.85 + 0.3 * j3)
+						list.append([x + y + 0.15 + 0.7 * (j3 + j4) * 0.5, _tree_name(x, y, 1), p2, sc2, j3 > 0.5, sc2 * 0.55])
+				2:
+					list.append([x + y + 0.9, "bush", Iso.to_screen(x + 0.5, y + 0.5), 0.30, j > 0.5, 0.16])
+				3:
+					list.append([x + y + 0.9, "rock_a" if j < 0.5 else "rock_b", Iso.to_screen(x + 0.5, y + 0.5), 0.30, j2 > 0.5, 0.17])
+	# OSM-byggnader (Borås-läge)
+	var bl: PackedInt32Array = data.buildings_in_chunk(c)
+	var b: PackedInt32Array = data.bld
+	for i in bl:
+		var bx: float = b[i] / 4.0
+		var by: float = b[i + 1] / 4.0
+		var bw: float = b[i + 2] / 4.0
+		var bh: float = b[i + 3] / 4.0
+		var kind: int = b[i + 4] / 16
+		var lv: int = b[i + 4] % 16
+		var len_m: float = maxf(bw, bh) * data.cell_m
+		var j := _jitter(b[i], b[i + 1])
+		var nm := _osm_building_name(kind, lv, len_m, j)
+		if not sprites.has(nm):
+			continue
+		var ctr := Iso.to_screen(bx + bw * 0.5, by + bh * 0.5)
+		var sc: float = sprites.scale_for_len(nm, len_m * OSM_EXAG, data.cell_m)
+		list.append([bx + bw * 0.5 + by + bh * 0.5, nm, ctr, sc, bh > bw, sc * 1.1])
+	list.sort_custom(func(a, b2): return a[0] < b2[0])
+	for it in list:
+		node.shadows.append([it[2] - centre + Vector2(it[5] * 40, it[5] * 14), it[5]])
+		node.items.append([it[1], it[2] - centre, it[3], it[4]])
+	return node if not list.is_empty() else null
+
 func _build_objects(c: Vector2i) -> MeshInstance2D:
 	var items: Array = []   # [djup, typ, a, b]
 	for ty in CS:
@@ -369,7 +454,7 @@ func build_chunk(c: Vector2i) -> void:
 		root.queue_free()
 		chunks[c] = {"ground": null, "objects": null}
 		return
-	var mi := _build_objects(c)
+	var mi = _build_object_node(c) if (sprites != null and sprites.ok) else _build_objects(c)
 	if mi != null:
 		objects.add_child(mi)
 	chunks[c] = {"ground": root, "objects": mi}
@@ -380,7 +465,7 @@ func rebuild_objects(c: Vector2i) -> void:
 	var entry: Dictionary = chunks[c]
 	if entry["objects"] != null:
 		entry["objects"].queue_free()
-	var mi := _build_objects(c)
+	var mi = _build_object_node(c) if (sprites != null and sprites.ok) else _build_objects(c)
 	if mi != null:
 		objects.add_child(mi)
 	entry["objects"] = mi

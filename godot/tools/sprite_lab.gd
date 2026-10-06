@@ -107,6 +107,10 @@ func ball(parent: Node3D, pos: Vector3, r: float, m: Material, sy: float = 1.0) 
 
 # ---------- modeller (1 enhet = 1 meter) ----------
 func hip_roof(n: Node3D, w: float, d: float, y: float, rh: float, m: Material) -> void:
+	var pivot := Node3D.new()
+	pivot.scale = Vector3(w + 1.0, rh, d + 1.0)
+	pivot.position = Vector3(0, y + rh / 2, 0)
+	n.add_child(pivot)
 	var mi := MeshInstance3D.new()
 	var c := CylinderMesh.new()
 	c.top_radius = 0.0
@@ -117,9 +121,7 @@ func hip_roof(n: Node3D, w: float, d: float, y: float, rh: float, m: Material) -
 	mi.mesh = c
 	mi.material_override = m
 	mi.rotation_degrees = Vector3(0, 45, 0)
-	mi.scale = Vector3(w + 1.0, rh, d + 1.0)
-	mi.position = Vector3(0, y + rh / 2, 0)
-	n.add_child(mi)
+	pivot.add_child(mi)
 
 func gable_roof(n: Node3D, w: float, d: float, y: float, rh: float, m: Material) -> void:
 	var prism := MeshInstance3D.new()
@@ -320,6 +322,187 @@ func model_person(shirt: Color, yaw_deg: float, frame: int, frames: int) -> Node
 		box(arm, Vector3(0, -0.6, 0), Vector3(0.13, 0.12, 0.14), skin)
 	return root
 
+# ---------- era-modeller ----------
+func thatch_tex() -> ImageTexture:
+	return _tex(64, 64, func(x: int, y: int) -> Color:
+		var c := Color(0.78, 0.66, 0.36) * (0.82 + 0.3 * _n(x / 2, y / 6, 21))
+		if y % 8 == 7:
+			c = c.darkened(0.25)
+		c.a = 1.0
+		return c)
+
+func stone_tex(base: Color) -> ImageTexture:
+	return _tex(64, 64, func(x: int, y: int) -> Color:
+		var row := y / 10
+		var xx := (x + (row % 2) * 8) % 16
+		var c := base * (0.8 + 0.3 * _n((x + (row % 2) * 8) / 16, row, 31))
+		if y % 10 == 9 or xx == 15:
+			c = c.darkened(0.4)
+		c.a = 1.0
+		return c)
+
+func rows_tex(a: Color, b: Color) -> ImageTexture:
+	return _tex(64, 64, func(x: int, y: int) -> Color:
+		var c := (a if (x / 4) % 2 == 0 else b) * (0.9 + 0.2 * _n(x, y, 41))
+		c.a = 1.0
+		return c)
+
+func model_cave() -> Node3D:
+	var n := Node3D.new()
+	var rock := mat(Color("7a7266"), stone_tex(Color("8a8274")), Vector3(2, 2, 1), 0.95)
+	var rock2 := mat(Color("6a6358"), stone_tex(Color("746c60")), Vector3(2, 2, 1), 0.95)
+	ball(n, Vector3(-1.5, 3.0, -1.0), 5.2, rock, 0.8)
+	ball(n, Vector3(2.5, 2.4, -2.2), 4.2, rock2, 0.8)
+	ball(n, Vector3(-3.5, 2.0, 2.4), 3.6, rock2, 0.8)
+	ball(n, Vector3(0.6, 3.6, -3.4), 4.4, rock, 0.75)
+	ball(n, Vector3(4.6, 1.2, 0.6), 2.6, rock, 0.8)
+	ball(n, Vector3(0.6, 1.2, 4.6), 2.6, rock2, 0.8)
+	var dark := mat(Color(0.02, 0.018, 0.015), null, Vector3.ONE, 1.0)
+	ball(n, Vector3(2.2, 2.0, 2.2), 3.7, rock, 0.85)
+	var pivot := Node3D.new()
+	n.add_child(pivot)
+	var mp := Vector3(4.5, 1.5, 4.5)
+	pivot.look_at_from_position(mp, mp + Vector3(1.0, 0.1, 1.0), Vector3.UP)
+	var mouth := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 1.0
+	sm.height = 2.0
+	mouth.mesh = sm
+	mouth.material_override = dark
+	mouth.scale = Vector3(1.55, 1.9, 0.3)
+	pivot.add_child(mouth)
+	for k in 7:
+		var a := PI * (0.05 + 0.9 * float(k) / 6.0)
+		var pr := Node3D.new()
+		n.add_child(pr)
+		var off := Vector3(cos(a) * 1.75, sin(a) * 2.1 - 0.2, 0.0)
+		var basis_pos := mp + pivot.global_transform.basis.x * off.x + Vector3.UP * off.y
+		ball(n, basis_pos, 0.62, rock2, 0.8)
+	for p in [Vector3(2.4, 0.4, 5.2), Vector3(5.4, 0.4, 2.2), Vector3(3.2, 3.6, 3.2)]:
+		ball(n, p, 0.8, rock2, 0.7)
+	for p in [Vector3(-2.0, 5.5, -0.5), Vector3(1.0, 5.9, -2.8)]:
+		ball(n, p, 1.0, mat(Color("4a7a30")), 0.5)
+	return n
+
+func model_tent(hide: Color) -> Node3D:
+	var n := Node3D.new()
+	var m := mat(hide, plaster(hide), Vector3(3, 2, 1), 0.95)
+	cone(n, Vector3(0, 2.0, 0), 2.7, 4.0, m, 7)
+	box(n, Vector3(0.0, 0.9, 2.5), Vector3(1.0, 1.8, 0.08), mat(Color(0.05, 0.04, 0.03)))
+	return n
+
+func model_hut(wall: Color) -> Node3D:
+	var n := Node3D.new()
+	var th := mat(Color.WHITE, thatch_tex(), Vector3(3, 2, 1), 0.95)
+	var wm := mat(wall, plaster(wall), Vector3(2, 1, 1), 0.95)
+	cyl(n, Vector3(0, 1.1, 0), 2.6, 2.2, wm, 12)
+	cone(n, Vector3(0, 3.7, 0), 3.5, 3.0, th, 12)
+	box(n, Vector3(0.0, 0.9, 2.5), Vector3(1.0, 1.8, 0.1), mat(Color(0.12, 0.08, 0.05)))
+	return n
+
+func model_longhouse(big: bool = false) -> Node3D:
+	var n := Node3D.new()
+	var w := 16.0 if big else 12.0
+	var d := 6.0 if big else 5.0
+	var h := 2.6
+	var wood := Color("7a5a38")
+	box(n, Vector3(0, h / 2, 0), Vector3(w, h, d), mat(wood, planks(wood), Vector3(w / 2.0, 1, 1)))
+	var th := mat(Color.WHITE, thatch_tex(), Vector3(w / 2.0, 2, 1), 0.95)
+	gable_roof(n, w, d, h, 3.4, th)
+	box(n, Vector3(w * 0.3, 0.9, d / 2 + 0.05), Vector3(1.0, 1.8, 0.1), mat(Color(0.1, 0.07, 0.05)))
+	box(n, Vector3(w / 2 + 0.05, 1.0, 0), Vector3(0.1, 1.9, 1.1), mat(Color(0.1, 0.07, 0.05)))
+	return n
+
+func model_timber(wood: Color, roof: Color, roof_thatch: bool) -> Node3D:
+	var n := Node3D.new()
+	var w := 10.0
+	var d := 6.5
+	var h := 4.4
+	var plaster_c := Color("d8caa4")
+	box(n, Vector3(0, h / 2, 0), Vector3(w, h, d), mat(plaster_c, plaster(plaster_c), Vector3(w / 2.5, h / 2.5, 1)))
+	var beam := mat(wood)
+	for i in 6:
+		var x := -w / 2 + i * w / 5.0
+		box(n, Vector3(x, h / 2, d / 2 + 0.05), Vector3(0.28, h, 0.18), beam)
+	for sz in [-1, 1]:
+		box(n, Vector3(w / 2 + 0.05, h / 2, sz * d / 2 * 0.8), Vector3(0.18, h, 0.28), beam)
+	box(n, Vector3(0, h * 0.5, d / 2 + 0.05), Vector3(w, 0.22, 0.18), beam)
+	box(n, Vector3(0, h - 0.1, d / 2 + 0.05), Vector3(w, 0.25, 0.2), beam)
+	var rm := mat(Color.WHITE, thatch_tex(), Vector3(w / 2.0, 2, 1), 0.95) if roof_thatch else mat(roof, tiles(roof), Vector3(w / 2.0, 2, 1), 0.8)
+	gable_roof(n, w, d, h, 3.2, rm)
+	windows_front(n, w * 0.7, d, h, 3, 1, h * 0.55, 3.0, 1.0, 1.2)
+	box(n, Vector3(w * 0.38, 1.1, d / 2 + 0.1), Vector3(1.1, 2.1, 0.12), mat(Color("4a3220")))
+	box(n, Vector3(w * 0.25, h + 2.6, -d * 0.12), Vector3(0.9, 2.0, 0.9), mat(Color("77716a"), stone_tex(Color("8a8479"))))
+	return n
+
+func model_stonehouse(stone: Color, roof: Color) -> Node3D:
+	var n := Node3D.new()
+	var w := 10.0
+	var d := 7.0
+	var h := 5.6
+	box(n, Vector3(0, h / 2, 0), Vector3(w, h, d), mat(stone, stone_tex(stone), Vector3(w / 3.0, h / 3.0, 1)))
+	gable_roof(n, w, d, h, 3.2, mat(roof, tiles(roof), Vector3(w / 2.0, 2, 1), 0.8))
+	windows_front(n, w * 0.7, d, h, 3, 2, 1.8, 2.6, 0.9, 1.3)
+	box(n, Vector3(w * 0.38, 1.2, d / 2 + 0.1), Vector3(1.2, 2.3, 0.12), mat(Color("4a3220")))
+	box(n, Vector3(w * 0.28, h + 2.8, -d * 0.1), Vector3(1.0, 2.4, 1.0), mat(Color("77716a"), stone_tex(Color("8a8479"))))
+	return n
+
+func model_field(gold: bool) -> Node3D:
+	var n := Node3D.new()
+	var a := Color("c9b04a") if gold else Color("5a9a38")
+	var b := Color("a68a36") if gold else Color("447a2c")
+	box(n, Vector3(0, 0.12, 0), Vector3(21.0, 0.24, 21.0), mat(Color("5a4630")))
+	box(n, Vector3(0, 0.3, 0), Vector3(19.5, 0.2, 19.5), mat(Color.WHITE, rows_tex(a, b), Vector3(5, 5, 1), 0.95))
+	return n
+
+func model_camp(stone: bool) -> Node3D:
+	var n := Node3D.new()
+	for p in [Vector3(-2.2, 0, -1.4), Vector3(2.2, 0, -1.4), Vector3(-2.2, 0, 1.6), Vector3(2.2, 0, 1.6)]:
+		box(n, p + Vector3(0, 1.6, 0), Vector3(0.3, 3.2, 0.3), mat(Color("5a4026")))
+	box(n, Vector3(0, 3.4, 0.1), Vector3(5.6, 0.35, 4.4), mat(Color("6a4a2c"), planks(Color("6a4a2c")), Vector3(3, 2, 1)))
+	if stone:
+		for i in 6:
+			var r := 0.7 + 0.15 * (i % 3)
+			ball(n, Vector3(-4.0 + (i % 3) * 1.4, r * 0.5, 3.6 + (i / 3) * 1.3), r, mat(Color("8d9199")), 0.7)
+	else:
+		for i in 5:
+			var c := MeshInstance3D.new()
+			var cm := CylinderMesh.new()
+			cm.top_radius = 0.4
+			cm.bottom_radius = 0.4
+			cm.height = 4.2
+			c.mesh = cm
+			c.material_override = mat(Color("8a5a30"), planks(Color("8a5a30")), Vector3(1, 1, 1))
+			c.rotation_degrees = Vector3(0, 0, 90)
+			c.position = Vector3(-4.2, 0.4 + (i / 3) * 0.7, 3.4 + (i % 3) * 0.85)
+			n.add_child(c)
+	box(n, Vector3(0, 0.5, 0.3), Vector3(2.0, 1.0, 1.4), mat(Color("7a6040")))
+	return n
+
+func model_keep() -> Node3D:
+	var n := Node3D.new()
+	var st := Color("8f8a80")
+	var sm := mat(st, stone_tex(st), Vector3(4, 4, 1))
+	box(n, Vector3(0, 7.0, 0), Vector3(12.0, 14.0, 12.0), sm)
+	for i in 6:
+		var t := -5.0 + i * 2.0
+		for side in [-1, 1]:
+			box(n, Vector3(t, 14.6, side * 5.6), Vector3(1.2, 1.3, 0.8), sm)
+			box(n, Vector3(side * 5.6, 14.6, t), Vector3(0.8, 1.3, 1.2), sm)
+	for sx in [-1, 1]:
+		for sz in [-1, 1]:
+			cyl(n, Vector3(sx * 6.0, 8.0, sz * 6.0), 2.2, 16.0, sm, 10)
+			cone(n, Vector3(sx * 6.0, 18.0, sz * 6.0), 2.8, 4.0, mat(Color("7a3f33")), 10)
+	box(n, Vector3(0, 2.2, 6.1), Vector3(2.6, 4.4, 0.2), mat(Color("3a2a1c")))
+	windows_front(n, 9.0, 12.0, 14.0, 3, 2, 6.0, 4.0, 0.9, 1.6)
+	return n
+
+func model_hall_long() -> Node3D:
+	var n := model_longhouse(true)
+	box(n, Vector3(-8.2, 3.0, 0), Vector3(0.3, 6.0, 0.3), mat(Color("5a4026")))
+	box(n, Vector3(-8.2, 5.6, 1.0), Vector3(0.1, 1.6, 2.0), mat(Color("b8302a")))
+	return n
+
 # ---------- rendering ----------
 func _setup(size_px: int) -> void:
 	SIZE = size_px
@@ -365,7 +548,7 @@ func _setup(size_px: int) -> void:
 	plane.position = Vector3(0, -0.01, 0)
 	vp.add_child(plane)
 
-func shoot(node: Node3D, name: String, out: String, cam_size: float, target_y: float) -> void:
+func shoot(node: Node3D, name: String, out: String, cam_size: float, target_y: float, len_m: float = 0.0) -> void:
 	for c in holder.get_children():
 		c.queue_free()
 	holder.add_child(node)
@@ -377,7 +560,7 @@ func shoot(node: Node3D, name: String, out: String, cam_size: float, target_y: f
 	vp.get_texture().get_image().save_png("%s/%s.png" % [out, name])
 	var ppm := float(SIZE) / cam_size
 	# var origo i bilden: mitten, förskjuten nedåt av målhöjden (pitch 30 grader)
-	meta[name] = {"ax": SIZE / 2.0, "ay": SIZE / 2.0 + target_y * cos(deg_to_rad(30.0)) * ppm, "ppm": ppm}
+	meta[name] = {"ax": SIZE / 2.0, "ay": SIZE / 2.0 + target_y * cos(deg_to_rad(30.0)) * ppm, "ppm": ppm, "len": len_m}
 
 func _initialize() -> void:
 	var out := "/tmp/sprites"
@@ -395,16 +578,38 @@ func _initialize() -> void:
 		for c in walls:
 			for sk in sizes:
 				var sz: Array = sizes[sk]
-				await shoot(model_house(walls[c][0], walls[c][1], sz[0], sz[1], sz[2], sk == "L"), "house_%s_%s" % [c, sk], out, 24.0, 3.5)
+				await shoot(model_house(walls[c][0], walls[c][1], sz[0], sz[1], sz[2], sk == "L"), "house_%s_%s" % [c, sk], out, 24.0, 3.5, sz[0])
 		var bw := {"cream": Color("d6cfb8"), "brick": Color("a35a40"), "grey": Color("a9aeb2")}
 		for c in bw:
 			for lv in [3, 4, 5, 6]:
-				await shoot(model_block(lv, bw[c]), "block_%s_%d" % [c, lv], out, 30.0, 3.0 * lv * 0.5)
-		await shoot(model_industrial(20.0, 12.0, Color("9aa3ad"), false), "industrial_a", out, 34.0, 4.0)
-		await shoot(model_industrial(30.0, 16.0, Color("8f9aa6"), true), "industrial_b", out, 44.0, 4.0)
-		await shoot(model_church(), "church", out, 34.0, 8.0)
-		await shoot(model_school(), "school", out, 36.0, 6.0)
+				await shoot(model_block(lv, bw[c]), "block_%s_%d" % [c, lv], out, 30.0, 3.0 * lv * 0.5, 16.0)
+		await shoot(model_industrial(20.0, 12.0, Color("9aa3ad"), false), "industrial_a", out, 34.0, 4.0, 20.0)
+		await shoot(model_industrial(30.0, 16.0, Color("8f9aa6"), true), "industrial_b", out, 44.0, 4.0, 30.0)
+		await shoot(model_church(), "church", out, 34.0, 8.0, 16.0)
+		await shoot(model_school(), "school", out, 36.0, 6.0, 22.0)
 		print("byggnader klara")
+	if which == "all" or which == "eras":
+		_setup(320)
+		await shoot(model_cave(), "cave", out, 26.0, 3.0, 12.0)
+		await shoot(model_tent(Color("a8845a")), "tent_a", out, 14.0, 2.0, 5.0)
+		await shoot(model_tent(Color("8a7a5a")), "tent_b", out, 14.0, 2.0, 5.0)
+		await shoot(model_hut(Color("9a7a58")), "hut_a", out, 14.0, 2.4, 6.0)
+		await shoot(model_hut(Color("8a6a4a")), "hut_b", out, 14.0, 2.4, 6.0)
+		await shoot(model_longhouse(false), "longhouse_a", out, 22.0, 2.6, 12.0)
+		await shoot(model_longhouse(true), "longhouse_b", out, 26.0, 2.6, 16.0)
+		await shoot(model_timber(Color("4a3626"), Color("7d3a2d"), true), "timber_a", out, 22.0, 3.4, 10.0)
+		await shoot(model_timber(Color("3a2a1c"), Color("7d3a2d"), false), "timber_b", out, 22.0, 3.4, 10.0)
+		await shoot(model_timber(Color("5a4630"), Color("5a2f28"), false), "timber_c", out, 22.0, 3.4, 10.0)
+		await shoot(model_stonehouse(Color("9a958a"), Color("7d3a2d")), "stone_a", out, 22.0, 4.0, 10.0)
+		await shoot(model_stonehouse(Color("a8a094"), Color("44444a")), "stone_b", out, 22.0, 4.0, 10.0)
+		await shoot(model_stonehouse(Color("8a8f98"), Color("5a2f28")), "stone_c", out, 22.0, 4.0, 10.0)
+		await shoot(model_field(false), "field_green", out, 34.0, 0.2, 20.0)
+		await shoot(model_field(true), "field_gold", out, 34.0, 0.2, 20.0)
+		await shoot(model_camp(false), "camp_wood", out, 20.0, 1.8, 6.0)
+		await shoot(model_camp(true), "camp_stone", out, 20.0, 1.8, 6.0)
+		await shoot(model_keep(), "hall_keep", out, 44.0, 8.0, 12.0)
+		await shoot(model_hall_long(), "hall_long", out, 30.0, 3.0, 16.0)
+		print("eror klara")
 	if which == "all" or which == "trees":
 		_setup(256)
 		var tsz := {"S": 1.6, "M": 2.0, "L": 2.5}

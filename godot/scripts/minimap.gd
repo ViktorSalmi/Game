@@ -19,6 +19,7 @@ var view_cells: Array = []
 var kx := 1.0
 var ky := 0.5
 var origin := Vector2.ZERO
+var sim
 
 func setup(map_data, fog_node) -> void:
 	data = map_data
@@ -74,6 +75,10 @@ func _draw() -> void:
 	for p in data.places:
 		if String(p["t"]) in ["city", "town"] and fog.is_explored(float(p["x"]), float(p["y"])):
 			draw_circle(_cell_to_local(Vector2(float(p["x"]), float(p["y"]))), 2.2, Color("ff5a5f"))
+	if sim != null:
+		for b in sim.buildings:
+			if fog.is_explored(b.center().x, b.center().y):
+				draw_circle(_cell_to_local(b.center()), 2.6 if b.kind == "hall" else 1.3, Color("ffd45a") if b.kind == "hall" else Color("f4efe0"))
 	if view_cells.size() == 4:
 		var pts := PackedVector2Array()
 		for c in view_cells:

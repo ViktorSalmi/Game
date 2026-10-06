@@ -1,19 +1,28 @@
-# Age of Borås – Godot 4 (etapp 1)
+# Stadsbyggaren (Godot 4)
 
-Isometrisk (2:1) Borås-karta i Godot 4. Byggd och testad med Godot 4.4.1; öppnas i senare 4.x (Godot kan fråga om uppgradering – tryck OK).
+Isometrisk (2:1) stadsbyggare/civilisationsspel. Du börjar i en grotta med fem personer och utvecklar en stam till städer.
+Byggd och testad med Godot 4.4.1; öppnas i senare 4.x (Godot kan fråga om uppgradering – tryck OK).
 
 ## Starta
 1. Öppna Godot → **Import** → välj `godot/project.godot` → **Import & Edit**.
-2. Tryck **F5**.
+2. Tryck **F5**. En egen värld genereras (seed 1621).
 
-Kartan läses från `../data/boras-data.json` (skapas av `node tools/bake-boras.mjs` i repots rot). Finns ingen fil visas en liten DEMO-karta.
-Egen sökväg: kör med användararg `--data=C:\sökväg\boras-data.json`.
+Andra världar (Debug → *Customize Run Instances* → *Main Run Args*, eller kommandoraden efter `--`):
+- `--seed=42` annan slumpvärld · `--size=512` större karta
+- `--boras` läser Borås-kartan från `../data/boras-data.json` (se tools/bake-boras.mjs) · `--data=sökväg`
+- `--speed=8` starthastighet
 
 ## Kontroller
 - **WASD/pilar**: panorera (Shift = snabbare) · **mushjul**: zoom · **mitten-dra**: panorera
-- **Högerklick**: skicka spejaren (platt platshållarfigur) – den avslöjar fog of war
-- **M**: hela kartan · **F**: dimma av/på · **L**: förklaring · **Home**: till spejaren · **Esc**: avsluta
-- Klicka/dra i minikartan för att hoppa
+- **Vänsterklick**: välj person/byggnad · **högerklick**: skicka spejaren (röd figur)
+- **Mellanslag**: paus · **1–5**: hastighet 1×–16× · **M**: hela kartan · **F**: dimma av/på · **L**: info · **Esc**: avsluta
+
+## Spelet idag
+- Procedurell värld (hav, strand, skog, fält, myr, berg, sjöar, floder) med grotta nära vatten och skog
+- Människor med behov (mat, energi), jobb (fälla träd, bryta sten, samla bär, odla, bygga), födelse, åldrande, död
+- Automatisk stadsbyggnad: hus, åkrar, läger; kolonisering till nya städer
+- Eror (Mörka → Feudala → Slottsåldern → Imperieåldern) byter byggnadernas utseende (tält/koja → långhus → timmerhus → stenhus)
+- Fog of war, minikarta, resursrad, logg
 
 ## Utseende (kodritat, inga färdiga bilder)
 - Marken är en enda shader: organiska kanter mellan skog/fält/vatten/bebyggelse, strand, hillshade, brus och rörligt vatten
@@ -22,7 +31,7 @@ Egen sökväg: kör med användararg `--data=C:\sökväg\boras-data.json`.
 - Vägklasser (stor väg, huvudgata, lokalgata, järnväg)
 - Obs: riktiga hus/lokalgator/skog kräver en ny körning av `node tools/bake-boras.mjs` (utan `--snabb`)
 
-## Innehåll etapp 1
+## Tekniskt (tidigare etapp)
 - Terräng som GPU-meshar per kartbit (32×32 rutor), byggda efter behov runt kameran
 - Vägar och järnväg, ortsnamn och sevärdheter (skärmrymd, konstant textstorlek)
 - Fog of war (mjuk, 4×4 rutor/pixel), diamantformad minikarta, AoE-inspirerat HUD (resurser är platshållare)
@@ -34,7 +43,17 @@ Allt grafiskt är platta platshållare – inget riktigt konstverk än.
 `godot --path godot -- --shot=bild.png --frames=120 --fit --nofog` sparar en skärmbild.
 `godot --headless --path godot -- --goto=500,300 --report --frames=600` kör utan grafik och skriver en rapport.
 
-## Sprites (förrenderade 3D → PNG)
-`tools/sprite_lab.gd` bygger enkla 3D-modeller med kod (hus, flerbostadshus, träd, människa), belyser dem och renderar isometriska PNG-sprites,
-på samma sätt som äldre isometriska spel gjordes. Provblad: `assets/pilot/sprite_sheet.png`.
-Kör (kräver skärm/xvfb): `godot --path godot --rendering-driver opengl3 -s tools/sprite_lab.gd -- --out=mapp`
+## Sprites (förrenderade 3D → PNG-atlas)
+`tools/sprite_lab.gd` bygger 3D-modeller med kod (grotta, tält, kojor, långhus, timmerhus, stenhus, flerbostadshus, kyrka, skola, fabriker, åkrar, läger,
+träd, buskar, stenar, människor i 8 riktningar med gångcykel), belyser dem och renderar isometriska PNG-sprites.
+`tools/pack_atlas.py` packar dem till `assets/sprites/atlas.png` + `atlas.json` som spelet läser.
+
+    for set in eras buildings trees people; do
+      xvfb-run -a godot --path godot --rendering-driver opengl3 -s tools/sprite_lab.gd -- --out=ut --set=$set
+    done
+    python3 godot/tools/pack_atlas.py ut godot/assets/sprites
+
+Du kan byta ut sprites mot egen grafik: behåll namn/ankarpunkt i `atlas.json`.
+
+## Tester utan grafik
+`godot --headless --path godot -s tests/sim_test.gd -- --seconds=9000` kör simuleringen och skriver ut utvecklingen.

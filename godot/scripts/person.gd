@@ -21,3 +21,5 @@ var role := ""               # senaste jobbtyp, för färg
 var wait := 0.0
 var face := 1.0
 var moving := false
+var dirv := Vector2(0, 1)
+var anim := 0.0

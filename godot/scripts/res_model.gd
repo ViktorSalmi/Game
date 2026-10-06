@@ -35,7 +35,7 @@ func base_kind(x: int, y: int) -> int:
 		8:
 			if h < 0.06: return TREE
 		6:
-			if h < 0.22: return ROCK
+			if h < 0.07: return ROCK
 	return 0
 
 func kind_at(x: int, y: int) -> int:

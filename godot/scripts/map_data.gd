@@ -22,6 +22,8 @@ var hi := 1.0
 var places: Array = []
 var pois: Array = []
 var counts := PackedInt32Array()
+var start_cell := Vector2i(-1, -1)  # var startpunkten är (grotta eller stad)
+var generated := false
 var bld := PackedInt32Array()       # x4,y4,w4,h4,meta (kvartsrutor; meta = typ*16+våningar)
 var bld_index := {}                 # Vector2i(kartbit) -> PackedInt32Array med startindex i bld
 const CS := 32

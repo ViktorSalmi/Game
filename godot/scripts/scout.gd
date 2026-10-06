@@ -8,6 +8,9 @@ var cell := Vector2(0, 0)
 var path: Array[Vector2i] = []
 var base_speed := 8.0
 var vision := 14.0
+var dirv := Vector2(0, 1)
+var anim := 0.0
+var moving := false
 
 func setup(map_data, start: Vector2) -> void:
 	data = map_data
@@ -30,20 +33,23 @@ func speed_here() -> float:
 	return base_speed * m
 
 func _process(dt: float) -> void:
+	moving = not path.is_empty()
 	if path.is_empty():
 		return
 	var target := Vector2(path[0]) + Vector2(0.5, 0.5)
 	var d := target - cell
 	var step := speed_here() * dt
+	if d.length() > 0.001:
+		dirv = d.normalized()
+	anim += step * 0.85
 	if d.length() <= step:
 		cell = target
 		path.pop_front()
 	else:
 		cell += d.normalized() * step
 	position = Iso.to_screen(cell.x, cell.y)
-	queue_redraw()
 
-func _draw() -> void:
+func _draw_old() -> void:
 	# platt platshållare: skugga, kropp, huvud
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.5))
 	draw_circle(Vector2.ZERO, 9.0, Color(0, 0, 0, 0.35))

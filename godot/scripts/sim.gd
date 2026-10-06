@@ -9,7 +9,7 @@ const ResModel = preload("res://scripts/res_model.gd")
 
 const YEAR := 120.0              # spelsekunder per år
 const START_YEAR := 1621
-const ADULT := 14.0              # år
+const ADULT := 6.0              # år
 const SPEC := {
 	"hall": {"size": 3, "need": 70.0, "wood": 0, "label": "Stadshus"},
 	"house": {"size": 2, "need": 22.0, "wood": 30, "label": "Hus"},
@@ -82,6 +82,13 @@ func count_kind(kind: String, only_done: bool = true) -> int:
 	var n := 0
 	for b in buildings:
 		if b.kind == kind and (b.done or not only_done):
+			n += 1
+	return n
+
+func adults_count() -> int:
+	var n := 0
+	for p in people:
+		if is_adult(p):
 			n += 1
 	return n
 
@@ -197,9 +204,9 @@ func kind_code(kind: String) -> int:
 func pick_gather_kind() -> String:
 	var farms := count_kind("farm")
 	var w := {
-		"wood": maxf(0.15, (260.0 - stock["wood"]) / 260.0 + 0.35),
+		"wood": 0.0 if stock["wood"] > 600 else maxf(0.1, (260.0 - stock["wood"]) / 260.0 + 0.3),
 		"stone": maxf(0.0, (140.0 - stock["stone"]) / 140.0) * 0.7,
-		"food": maxf(0.0, (220.0 - stock["food"]) / 220.0) * (1.0 if farms == 0 else 0.4),
+		"food": maxf(0.0, (people.size() * 8.0 + 120.0 - stock["food"]) / 220.0) * (1.0 if farms == 0 else 0.4),
 	}
 	var total := 0.0
 	for k in w:
@@ -237,7 +244,7 @@ func end_job(p) -> void:
 		if b != null:
 			b.builders = maxi(0, b.builders - 1)
 	p.job = {}
-	p.path = []
+	p.path.clear()
 	if p.state != "sleep":
 		p.state = "idle"
 
@@ -373,7 +380,7 @@ func think(p) -> void:
 			return
 	if builders_needed() and start_build(p):
 		return
-	if stock["food"] < 400 and count_kind("farm") > 0 and start_farm(p):
+	if stock["food"] < people.size() * 12 + 200 and count_kind("farm") > 0 and start_farm(p):
 		return
 	if start_gather(p, pick_gather_kind()):
 		return
@@ -466,6 +473,9 @@ func step_move(p, dt: float) -> bool:
 		m = 1.4
 	var step := 2.4 * m * dt * (0.45 if not is_adult(p) else 1.0)
 	p.moving = true
+	if d.length() > 0.001:
+		p.dirv = d.normalized()
+	p.anim += step * 0.85
 	if absf(d.x - d.y) > 0.05:
 		p.face = 1.0 if d.x - d.y > 0 else -1.0
 	if d.length() <= step:
@@ -535,7 +545,7 @@ func economy() -> void:
 			adults += 1
 	stock["gold"] += adults * 0.012
 	var cap := housing_cap()
-	if people.size() < cap and stock["food"] > people.size() * 8 and rng.randf() < 0.05:
+	if people.size() < cap and stock["food"] > people.size() * 4 + 40 and rng.randf() < 0.04:
 		var h = nearest_building(["house", "hall"], Vector2(data.w, data.h) * 0.5)
 		var hs: Array = buildings.filter(func(b): return b.done and (b.kind == "house" or b.kind == "hall"))
 		if not hs.is_empty():
@@ -555,21 +565,18 @@ func ai_build() -> void:
 	if pending >= 2 or people.size() < 3:
 		return
 	var n := people.size()
+	var adults := adults_count()
 	var cap := housing_cap()
 	var farms := count_kind("farm")
 	var kind := ""
 	if n >= cap - 2 and stock["wood"] >= 30:
 		kind = "house"
-	elif farms * 5 < n * 0.45 and stock["wood"] >= 60:
+	elif farms * 5 < adults * 0.6 and farms < adults / 4 + 2 and stock["wood"] >= 60:
 		kind = "farm"
 	elif stock["wood"] >= 60 and _camp_needed("wood"):
 		kind = "camp_wood"
 	elif stock["wood"] >= 60 and stock["stone"] < 80 and _camp_needed("stone"):
 		kind = "camp_stone"
-	elif n >= cap - 4 and stock["wood"] >= 30:
-		kind = "house"
-	elif stock["wood"] > 350 and rng.randf() < 0.5:
-		kind = "house" if rng.randf() < 0.6 else "farm"
 	if kind == "":
 		return
 	var halls: Array = buildings.filter(func(b): return b.kind == "hall" and b.done)
@@ -593,7 +600,11 @@ func ai_build() -> void:
 	if stock["wood"] < w:
 		return
 	stock["wood"] -= w
-	add_building(bk, site, false)
+	var nb = add_building(bk, site, false)
+	if kind == "camp_stone":
+		nb.variant = "stone"
+	elif kind == "camp_wood":
+		nb.variant = "wood"
 
 func _camp_needed(kind: String) -> bool:
 	var code := ResModel.TREE if kind == "wood" else ResModel.ROCK
@@ -629,7 +640,7 @@ func check_era() -> void:
 	log_event.emit("🏰 %s inleds! (%d invånare)" % [ERA_NAMES[era], n], true)
 
 func colonize() -> void:
-	if people.size() < 24 or stock["wood"] < 160 or stock["food"] < 160 or towns.size() >= 14:
+	if people.size() < 24 or adults_count() < 14 or stock["wood"] < 160 or stock["food"] < 160 or towns.size() >= 2 + people.size() / 35:
 		return
 	for b in buildings:
 		if b.kind == "hall" and not b.done:
@@ -689,7 +700,8 @@ func step(dt: float) -> void:
 	acc_col += dt
 	if acc_col >= 30.0:
 		acc_col = 0.0
-		colonize()
+		if time > 1500.0:
+			colonize()
 
 func summary() -> String:
 	var adults := 0

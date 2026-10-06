@@ -10,12 +10,12 @@ Byggd och testad med Godot 4.4.1; öppnas i senare 4.x (Godot kan fråga om uppg
 Andra världar (Debug → *Customize Run Instances* → *Main Run Args*, eller kommandoraden efter `--`):
 - `--seed=42` annan slumpvärld · `--size=512` större karta
 - `--boras` läser Borås-kartan från `../data/boras-data.json` (se tools/bake-boras.mjs) · `--data=sökväg`
-- `--speed=8` starthastighet
+- `--speed=8` starthastighet · `--prewarm=60` förkör 60 år innan spelet visas (för tester)
 
 ## Kontroller
 - **WASD/pilar**: panorera (Shift = snabbare) · **mushjul**: zoom · **mitten-dra**: panorera
 - **Vänsterklick**: välj person/byggnad · **högerklick**: skicka spejaren (röd figur)
-- **Mellanslag**: paus · **1–5**: hastighet 1×–16× · **M**: hela kartan · **F**: dimma av/på · **L**: info · **Esc**: avsluta
+- **Mellanslag**: paus · **1–7**: hastighet 1×–64× · knappen **Spola 10 år** · **M**: hela kartan · **F**: dimma · **B**: stadsgränser · **L**: info · **Esc**: avsluta
 
 ## Spelet idag
 - Procedurell värld (hav, strand, skog, fält, myr, berg, sjöar, floder) med grotta nära vatten och skog
@@ -23,6 +23,7 @@ Andra världar (Debug → *Customize Run Instances* → *Main Run Args*, eller k
 - Automatisk stadsbyggnad: hus, åkrar, läger; kolonisering till nya städer
 - Eror (Mörka → Feudala → Slottsåldern → Imperieåldern) byter byggnadernas utseende (tält/koja → långhus → timmerhus → stenhus)
 - Fog of war, minikarta, resursrad, logg
+- Stadsområden med färgade gränser (B), stadslista, stadsnivåer (läger → metropol), vägar/stigar mellan byggnader
 
 ## Utseende (kodritat, inga färdiga bilder)
 - Marken är en enda shader: organiska kanter mellan skog/fält/vatten/bebyggelse, strand, hillshade, brus och rörligt vatten

@@ -3,7 +3,7 @@ extends Node2D
 
 const Iso = preload("res://scripts/iso.gd")
 const PERSON_SCALE := 0.32
-const FIT := {"tent_a": 0.7, "tent_b": 0.7, "hut_a": 0.8, "hut_b": 0.8, "longhouse_a": 0.95, "cave": 1.0}
+const FIT := {"tent_a": 0.7, "tent_b": 0.7, "hut_a": 0.8, "hut_b": 0.8, "longhouse_a": 0.95, "cave": 1.0, "campfire": 0.55}
 
 var sim
 var sprites
@@ -19,10 +19,12 @@ func _process(_dt: float) -> void:
 func sprite_for(b) -> String:
 	var h: int = int(b.id) % 3
 	match b.kind:
+		"cave":
+			return "cave"
 		"hall":
-			if data.generated and sim.towns.size() > 0 and b.id == sim.towns[0]["hall"]:
-				return "cave"
-			return "hall_long" if sim.era < 2 else "hall_keep"
+			if sim.era == 0:
+				return "campfire"
+			return "hall_long" if sim.era < 3 else "hall_keep"
 		"house":
 			match sim.era:
 				0: return ["tent_a", "tent_b", "hut_a"][h]

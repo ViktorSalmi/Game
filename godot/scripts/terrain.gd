@@ -19,6 +19,7 @@ const ROADS := {
 	4: [3.6, 2.4, Color(0.40, 0.37, 0.33), Color(0.70, 0.67, 0.61)],
 	2: [3.4, 1.7, Color(0.18, 0.16, 0.14), Color(0.52, 0.50, 0.46)],
 }
+const DIRT := [4.2, 2.9, Color(0.40, 0.31, 0.20), Color(0.69, 0.57, 0.38)]
 const WALLS := [Color("9a3b2b"), Color("a8442f"), Color("dcc072"), Color("ece6d6"), Color("c9b48a"), Color("9a3b2b"), Color("e3d3a1")]
 const ROOFS := [Color("3b3b40"), Color("4a4a50"), Color("7d3a2d"), Color("5a2f28"), Color("56575c")]
 
@@ -28,6 +29,7 @@ var ground := Node2D.new()
 var objects := Node2D.new()
 var chunks := {}      # Vector2i -> {ground: Node2D, objects: MeshInstance2D}
 var dirty := {}
+var road_dirty := {}
 var noise := FastNoiseLite.new()
 var chunks_w := 0
 var chunks_h := 0
@@ -169,7 +171,7 @@ func _build_roads(c: Vector2i, root: Node2D) -> void:
 			var y: int = cell.y
 			var r: int = cell.z
 			var p0 := Iso.to_screen(x + 0.5, y + 0.5)
-			var spec: Array = ROADS[r]
+			var spec: Array = DIRT if (data.generated and r == 4) else ROADS[r]
 			var w: float = spec[pass_i]
 			var colr: Color = spec[2 + pass_i]
 			_quad(v, col, p0 + Vector2(0, -w), p0 + Vector2(w * 1.6, 0), p0 + Vector2(0, w), p0 + Vector2(-w * 1.6, 0), colr)
@@ -181,7 +183,7 @@ func _build_roads(c: Vector2i, root: Node2D) -> void:
 					continue   # diagonal bara där den inte redan är ansluten via en rak väg (undviker X i korsningar)
 				var p1 := Iso.to_screen(x + d.x + 0.5, y + d.y + 0.5)
 				var mid := (p0 + p1) * 0.5
-				var spec_n: Array = ROADS[rn]
+				var spec_n: Array = DIRT if (data.generated and rn == 4) else ROADS[rn]
 				_road_half(v, col, p0, mid, w, colr)
 				_road_half(v, col, mid, p1, float(spec_n[pass_i]), spec_n[2 + pass_i])
 		root.add_child(_mesh(v, col))
@@ -459,6 +461,20 @@ func build_chunk(c: Vector2i) -> void:
 		objects.add_child(mi)
 	chunks[c] = {"ground": root, "objects": mi}
 
+func mark_roads(list: Array) -> void:
+	for c in list:
+		road_dirty[c] = true
+
+func rebuild_roads(c: Vector2i) -> void:
+	if not chunks.has(c):
+		return
+	var root = chunks[c]["ground"]
+	if root == null:
+		return
+	for ch in root.get_children():
+		ch.queue_free()
+	_build_roads(c, root)
+
 func rebuild_objects(c: Vector2i) -> void:
 	if not chunks.has(c):
 		return
@@ -477,6 +493,11 @@ func update_visible(cell_min: Vector2, cell_max: Vector2, budget_us: int = 7000)
 	var centre := Vector2((c0.x + c1.x) * 0.5, (c0.y + c1.y) * 0.5)
 	var t0 := Time.get_ticks_usec()
 	var built := 0
+	for k in road_dirty.keys():
+		rebuild_roads(k)
+		road_dirty.erase(k)
+		if Time.get_ticks_usec() - t0 > budget_us:
+			return built
 	for k in dirty.keys():
 		rebuild_objects(k)
 		dirty.erase(k)

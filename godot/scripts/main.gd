@@ -9,6 +9,7 @@ const ResModel = preload("res://scripts/res_model.gd")
 const Sprites = preload("res://scripts/sprites.gd")
 const Sim = preload("res://scripts/sim.gd")
 const Entities = preload("res://scripts/entities.gd")
+const Territory = preload("res://scripts/territory.gd")
 const Fog = preload("res://scripts/fog.gd")
 const Pathing = preload("res://scripts/pathing.gd")
 const Scout = preload("res://scripts/scout.gd")
@@ -27,6 +28,9 @@ var paused := false
 var sim_acc := 0.0
 var selected = null
 var hud_timer := 0.0
+var territory
+var terr_timer := 0.0
+var ff_left := 0.0
 var fog
 var pathing
 var scout
@@ -98,6 +102,15 @@ func _ready() -> void:
 	sim = Sim.new()
 	sim.setup(data, pathing, Vector2i(home_cell), first_name, int(args.get("seed", "1621")))
 	scout.visible = false
+	territory = Territory.new()
+	add_child(territory)
+	territory.setup(data, sim)
+	if args.has("prewarm"):
+		var t1 := Time.get_ticks_msec()
+		var total: float = float(args["prewarm"]) * sim.YEAR
+		while sim.time < total:
+			sim.step(0.1)
+		print("Förkört %s år på %d ms" % [args["prewarm"], Time.get_ticks_msec() - t1])
 	entities = Entities.new()
 	entities.sim = sim
 	entities.sprites = sprites
@@ -112,6 +125,7 @@ func _ready() -> void:
 	overlay = Overlay.new()
 	ol.add_child(overlay)
 	overlay.setup(data, fog, cam)
+	overlay.sim = sim
 
 	hud = Hud.new()
 	hud.layer = 10
@@ -124,9 +138,12 @@ func _ready() -> void:
 	minimap.setup(data, fog)
 	minimap.jump_to.connect(_on_minimap_jump)
 	sim.log_event.connect(func(t, imp): hud.add_log(t, imp))
+	sim.road_changed.connect(func(cs): terrain.mark_roads(cs))
 	hud.add_log("Stammen vaknar i %s. Fem personer, ingenting annat." % first_name, true)
 	for k in hud.speed_buttons:
 		hud.speed_buttons[k].pressed.connect(func(): _set_speed(k))
+	hud.buttons["Gränser"].pressed.connect(func(): territory.toggle())
+	hud.ff_button.pressed.connect(func(): ff_left += 10.0 * sim.YEAR)
 	hud.buttons["Karta"].pressed.connect(fit_map)
 	hud.buttons["Dimma"].pressed.connect(toggle_fog)
 	hud.buttons["Info"].pressed.connect(toggle_legend)
@@ -198,6 +215,10 @@ func selection_text() -> String:
 			extra = "\nInvånare %d/%d" % [b.residents.size(), 4 + sim.era]
 		elif b.kind == "farm":
 			extra = "\nBönder %d/5" % b.workers
+		if b.kind == "hall":
+			var t: Dictionary = sim.towns[b.town]
+			extra = "\n%s · %d invånare" % [sim.LEVEL_NAMES[t["level"]], t["pop"]]
+			label = "%s – %s" % [t["name"], label]
 		return "%s (%s)%s" % [label, st, extra]
 	return ""
 
@@ -254,6 +275,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 			KEY_3: _set_speed("4×")
 			KEY_4: _set_speed("8×")
 			KEY_5: _set_speed("16×")
+			KEY_6: _set_speed("32×")
+			KEY_7: _set_speed("64×")
+			KEY_B: territory.toggle()
 			KEY_ESCAPE: get_tree().quit()
 
 func _zoom(f: float, mouse: Vector2) -> void:
@@ -288,20 +312,33 @@ func _process(dt: float) -> void:
 	cam.position.x = clampf(cam.position.x, -data.h * Iso.TW * 0.5, data.w * Iso.TW * 0.5)
 	cam.position.y = clampf(cam.position.y, 0.0, (data.w + data.h) * Iso.TH * 0.5)
 
-	if not paused:
+	if ff_left > 0.0:
+		var t0 := Time.get_ticks_usec()
+		while ff_left > 0.0 and Time.get_ticks_usec() - t0 < 45000:
+			sim.step(0.1)
+			ff_left -= 0.1
+	elif not paused:
 		sim_acc += dt * speed
 		var steps := 0
-		while sim_acc >= 0.1 and steps < 48:
+		while sim_acc >= 0.1 and steps < 90:
 			sim.step(0.1)
 			sim_acc -= 0.1
 			steps += 1
-		if steps >= 48:
+		if steps >= 90:
 			sim_acc = 0.0
 	hud_timer += dt
 	if hud_timer > 0.2:
 		hud_timer = 0.0
 		hud.res_label.text = "Trä %d   Mat %d   Guld %d   Sten %d   Befolkning %d/%d" % [sim.stock["wood"], sim.stock["food"], sim.stock["gold"], sim.stock["stone"], sim.pop(), sim.housing_cap()]
 		hud.era_label.text = "%s · %s" % [sim.ERA_NAMES[sim.era], sim.date_text()]
+		hud.era_hint.text = sim.next_era_text() if ff_left <= 0.0 else "Spolar framåt: %.1f år kvar…" % (ff_left / sim.YEAR)
+		territory.refresh()
+		var tl: Array = []
+		for t in sim.towns:
+			var hb = sim.building_by_id(t["hall"])
+			if hb != null:
+				tl.append({"name": t["name"], "pop": t["pop"], "level": sim.LEVEL_NAMES[t["level"]], "cell": hb.center()})
+		hud.set_towns(tl, func(c): cam.position = Iso.to_screen(c.x, c.y))
 		var st := selection_text()
 		hud.sel_panel.visible = st != ""
 		hud.sel_label.text = st

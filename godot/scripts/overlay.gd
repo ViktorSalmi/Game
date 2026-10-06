@@ -5,6 +5,7 @@ const Iso = preload("res://scripts/iso.gd")
 var data
 var fog
 var cam: Camera2D
+var sim
 
 func setup(map_data, fog_node, camera: Camera2D) -> void:
 	data = map_data
@@ -23,6 +24,24 @@ func _draw() -> void:
 	var xf := get_viewport().get_canvas_transform()
 	var vp := get_viewport_rect().size
 	var z := cam.zoom.x
+	if sim != null:
+		for t in sim.towns:
+			var hb = sim.building_by_id(t["hall"])
+			if hb == null:
+				continue
+			var hc: Vector2 = hb.center()
+			var sp0 := xf * Iso.to_screen(hc.x, hc.y) + Vector2(0, -78.0 * z)
+			if sp0.x < -200 or sp0.y < -100 or sp0.x > vp.x + 200 or sp0.y > vp.y + 100:
+				continue
+			var txt0 := "%s · %d" % [t["name"], t["pop"]]
+			var sub0: String = sim.LEVEL_NAMES[t["level"]]
+			var fs0 := 14
+			var w0 := font.get_string_size(txt0, HORIZONTAL_ALIGNMENT_LEFT, -1, fs0).x + 26
+			draw_rect(Rect2(sp0 + Vector2(-w0 * 0.5, -12), Vector2(w0, 34)), Color(0.1, 0.07, 0.04, 0.82))
+			draw_rect(Rect2(sp0 + Vector2(-w0 * 0.5, -12), Vector2(w0, 34)), Color("a07a34"), false, 1.5)
+			draw_circle(sp0 + Vector2(-w0 * 0.5 + 11, 0), 4.5, Color("ffd45a"))
+			draw_string(font, sp0 + Vector2(-w0 * 0.5 + 21, 4), txt0, HORIZONTAL_ALIGNMENT_LEFT, -1, fs0, Color(1, 0.96, 0.85))
+			draw_string(font, sp0 + Vector2(-w0 * 0.5 + 21, 18), sub0, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("d8b46a"))
 	for p in data.places:
 		var rank := 4
 		match String(p["t"]):

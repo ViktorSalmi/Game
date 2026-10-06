@@ -15,10 +15,14 @@ var minimap_holder: PanelContainer
 var help_label: Label
 var buttons := {}
 var speed_buttons := {}
+var ff_button: Button
 var log_label: RichTextLabel
 var sel_panel: PanelContainer
 var sel_label: Label
 var log_lines: Array = []
+var towns_box: VBoxContainer
+var era_hint: Label
+var town_sig := ""
 
 func style(bg_top: Color = Color("45321b")) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -71,14 +75,25 @@ func build() -> void:
 	hb.add_child(sp)
 	fps_label = _label("", 13, DIM)
 	hb.add_child(fps_label)
-	for k in ["Paus", "1×", "2×", "4×", "8×", "16×"]:
-		var sb := _button(k)
-		speed_buttons[k] = sb
-		hb.add_child(sb)
-	for k in ["Karta", "Dimma", "Info"]:
+	for k in ["Karta", "Dimma", "Gränser", "Info"]:
 		var b := _button(k)
 		buttons[k] = b
 		hb.add_child(b)
+	var spp := PanelContainer.new()
+	spp.add_theme_stylebox_override("panel", style())
+	spp.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	spp.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	spp.offset_top = 52
+	add_child(spp)
+	var sh := HBoxContainer.new()
+	sh.add_theme_constant_override("separation", 6)
+	spp.add_child(sh)
+	for k in ["Paus", "1×", "2×", "4×", "8×", "16×", "32×", "64×"]:
+		var sb := _button(k)
+		speed_buttons[k] = sb
+		sh.add_child(sb)
+	ff_button = _button("Spola 10 år")
+	sh.add_child(ff_button)
 	# info (hover)
 	var ip := PanelContainer.new()
 	ip.add_theme_stylebox_override("panel", style())
@@ -87,10 +102,31 @@ func build() -> void:
 	info_label = _label("", 14)
 	info_label.custom_minimum_size = Vector2(270, 0)
 	ip.add_child(info_label)
+	var hp := PanelContainer.new()
+	hp.add_theme_stylebox_override("panel", style())
+	hp.position = Vector2(14, 140)
+	add_child(hp)
+	era_hint = _label("", 12, Color("ffd36b"))
+	era_hint.custom_minimum_size = Vector2(270, 0)
+	era_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hp.add_child(era_hint)
+	var tp := PanelContainer.new()
+	tp.add_theme_stylebox_override("panel", style())
+	tp.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	tp.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	tp.offset_right = -14
+	tp.offset_top = 56
+	add_child(tp)
+	var tv := VBoxContainer.new()
+	tp.add_child(tv)
+	tv.add_child(_label("Städer", 14, Color("ffd36b")))
+	towns_box = VBoxContainer.new()
+	towns_box.custom_minimum_size = Vector2(220, 0)
+	tv.add_child(towns_box)
 	# legend
 	legend_panel = PanelContainer.new()
 	legend_panel.add_theme_stylebox_override("panel", style())
-	legend_panel.position = Vector2(14, 160)
+	legend_panel.position = Vector2(14, 230)
 	legend_panel.visible = false
 	add_child(legend_panel)
 	legend_label = RichTextLabel.new()
@@ -144,6 +180,22 @@ func build() -> void:
 	help_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help_label.offset_bottom = -8
 	add_child(help_label)
+
+func set_towns(list: Array, on_pick: Callable) -> void:
+	var sig := ""
+	for t in list:
+		sig += "%s|%d|%s;" % [t["name"], t["pop"], t["level"]]
+	if sig == town_sig:
+		return
+	town_sig = sig
+	for c in towns_box.get_children():
+		c.queue_free()
+	for t in list:
+		var b := _button("%s  ·  %s  ·  %d" % [t["name"], t["level"], t["pop"]])
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var cell: Vector2 = t["cell"]
+		b.pressed.connect(func(): on_pick.call(cell))
+		towns_box.add_child(b)
 
 func add_log(text: String, important: bool = false) -> void:
 	log_lines.append(("[color=#ffd36b]%s[/color]" % text) if important else text)

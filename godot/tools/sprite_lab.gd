@@ -497,6 +497,54 @@ func model_keep() -> Node3D:
 	windows_front(n, 9.0, 12.0, 14.0, 3, 2, 6.0, 4.0, 0.9, 1.6)
 	return n
 
+func model_campfire() -> Node3D:
+	var n := Node3D.new()
+	for i in 10:
+		var a := TAU * i / 10.0
+		ball(n, Vector3(cos(a) * 1.5, 0.3, sin(a) * 1.5), 0.45, mat(Color("8d9199")), 0.7)
+	for k in 3:
+		var c := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.16
+		cm.bottom_radius = 0.16
+		cm.height = 2.2
+		c.mesh = cm
+		c.material_override = mat(Color("5a3a22"))
+		c.rotation_degrees = Vector3(70, k * 60, 0)
+		c.position = Vector3(0, 0.5, 0)
+		n.add_child(c)
+	var fm := StandardMaterial3D.new()
+	fm.albedo_color = Color("ff8a1e")
+	fm.emission_enabled = true
+	fm.emission = Color("ff7a10")
+	fm.emission_energy_multiplier = 2.0
+	cone(n, Vector3(0, 1.3, 0), 0.75, 1.8, fm, 8)
+	var fm2 := StandardMaterial3D.new()
+	fm2.albedo_color = Color("ffd24a")
+	fm2.emission_enabled = true
+	fm2.emission = Color("ffd24a")
+	fm2.emission_energy_multiplier = 2.0
+	cone(n, Vector3(0, 1.1, 0), 0.4, 1.1, fm2, 8)
+	for i in 4:
+		var a := TAU * (i + 0.5) / 4.0
+		var seat := MeshInstance3D.new()
+		var sm := CylinderMesh.new()
+		sm.top_radius = 0.3
+		sm.bottom_radius = 0.3
+		sm.height = 1.8
+		seat.mesh = sm
+		seat.material_override = mat(Color("6a4a2c"), planks(Color("6a4a2c")), Vector3(1, 1, 1))
+		seat.rotation_degrees = Vector3(0, -rad_to_deg(a), 90)
+		seat.position = Vector3(cos(a) * 3.4, 0.35, sin(a) * 3.4)
+		n.add_child(seat)
+	for sgn in [-1, 1]:
+		var base := Vector3(sgn * 4.6, 0, -2.4)
+		box(n, base + Vector3(-0.6, 1.2, 0), Vector3(0.18, 2.4, 0.18), mat(Color("5a4026")))
+		box(n, base + Vector3(0.6, 1.2, 0), Vector3(0.18, 2.4, 0.18), mat(Color("5a4026")))
+		box(n, base + Vector3(0, 2.3, 0), Vector3(1.6, 0.14, 0.14), mat(Color("5a4026")))
+		box(n, base + Vector3(0, 1.5, 0), Vector3(1.1, 1.4, 0.06), mat(Color("a8845a")))
+	return n
+
 func model_hall_long() -> Node3D:
 	var n := model_longhouse(true)
 	box(n, Vector3(-8.2, 3.0, 0), Vector3(0.3, 6.0, 0.3), mat(Color("5a4026")))
@@ -609,6 +657,7 @@ func _initialize() -> void:
 		await shoot(model_camp(true), "camp_stone", out, 20.0, 1.8, 6.0)
 		await shoot(model_keep(), "hall_keep", out, 44.0, 8.0, 12.0)
 		await shoot(model_hall_long(), "hall_long", out, 30.0, 3.0, 16.0)
+		await shoot(model_campfire(), "campfire", out, 20.0, 1.2, 10.0)
 		print("eror klara")
 	if which == "all" or which == "trees":
 		_setup(256)

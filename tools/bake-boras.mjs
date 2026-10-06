@@ -9,18 +9,24 @@ const BBOX = { S: 57.56, W: 12.64, N: 57.92, E: 13.32 };
 const MIRRORS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function overpass(q, tries = 4) {
+import crypto from 'node:crypto';
+fs.mkdirSync('data/cache', { recursive: true });
+// Varje svar cachas på disk, så ett avbrutet/begränsat körning kan återupptas utan att börja om.
+async function overpass(q, tries = 8) {
+  const cf = 'data/cache/' + crypto.createHash('sha1').update(q).digest('hex') + '.json';
+  if (fs.existsSync(cf)) return JSON.parse(fs.readFileSync(cf, 'utf8'));
   for (let a = 0; a < tries; a++) {
     for (const url of MIRRORS) {
       try {
         const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'evigheten-game/1.0' }, body: 'data=' + encodeURIComponent(q) });
-        if (r.ok) return (await r.json()).elements || [];
-        console.warn('  overpass', r.status, url);
-      } catch (e) { console.warn('  overpass fel', e.message); }
-      await sleep(2000 * (a + 1));
+        if (r.ok) { const els = (await r.json()).elements || []; fs.writeFileSync(cf, JSON.stringify(els)); return els; }
+        const wait = r.status === 429 || r.status === 504 ? 30000 * (a + 1) : 5000 * (a + 1);
+        console.warn(`  ${r.status} från ${url} – väntar ${wait / 1000}s (försök ${a + 1}/${tries})`);
+        await sleep(wait);
+      } catch (e) { console.warn('  nätverksfel', e.message); await sleep(5000 * (a + 1)); }
     }
   }
-  throw new Error('Overpass svarade inte');
+  throw new Error('Overpass svarade inte – kör skriptet igen lite senare, det fortsätter där det slutade.');
 }
 
 const proj = makeProj(BBOX), grid = makeGrid(proj);

@@ -33,3 +33,8 @@ Allt grafiskt är platta platshållare – inget riktigt konstverk än.
 ## Teststyrning (valfritt)
 `godot --path godot -- --shot=bild.png --frames=120 --fit --nofog` sparar en skärmbild.
 `godot --headless --path godot -- --goto=500,300 --report --frames=600` kör utan grafik och skriver en rapport.
+
+## Sprites (förrenderade 3D → PNG)
+`tools/sprite_lab.gd` bygger enkla 3D-modeller med kod (hus, flerbostadshus, träd, människa), belyser dem och renderar isometriska PNG-sprites,
+på samma sätt som äldre isometriska spel gjordes. Provblad: `assets/pilot/sprite_sheet.png`.
+Kör (kräver skärm/xvfb): `godot --path godot --rendering-driver opengl3 -s tools/sprite_lab.gd -- --out=mapp`

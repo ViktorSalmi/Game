@@ -39,29 +39,27 @@ try {
   console.log('Kommungräns:', els.length ? 'ok' : 'hittades inte (hela rutan används)');
 } catch (e) { console.warn('Ingen kommungräns:', e.message); }
 
-// polygoner och linjer, rutvis för att hålla svaren små
-const NX = 3, NY = 3;
+// polygoner och linjer: små rutor och ett kartlager per fråga, så varje fråga blir lätt för servern
+const NX = 5, NY = 5;
+const THEMES = [
+  ['vatten/myr/berg', bb => `way["natural"~"^(water|wetland|bare_rock|scree)$"]${bb};relation["natural"~"^(water|wetland)$"]${bb};way["waterway"="riverbank"]${bb};relation["waterway"="riverbank"]${bb};way["landuse"="reservoir"]${bb};`],
+  ['skog', bb => `way["natural"="wood"]${bb};way["landuse"="forest"]${bb};relation["natural"="wood"]${bb};relation["landuse"="forest"]${bb};`],
+  ['bebyggelse/åker', bb => `way["landuse"~"^(residential|industrial|commercial|retail|construction|farmland|meadow|orchard|farmyard|grass|cemetery|allotments|recreation_ground)$"]${bb};relation["landuse"~"^(residential|industrial|commercial|retail|farmland|meadow)$"]${bb};way["leisure"~"^(park|pitch|golf_course|garden)$"]${bb};`],
+  ['vägar/å/järnväg', bb => `way["waterway"~"^(river|canal)$"]${bb};way["highway"~"^(motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link)$"]${bb};way["railway"="rail"]${bb};`],
+];
+let done = 0;
 for (let i = 0; i < NX; i++) for (let j = 0; j < NY; j++) {
   const s = BBOX.S + (BBOX.N - BBOX.S) * j / NY, n = BBOX.S + (BBOX.N - BBOX.S) * (j + 1) / NY;
   const w = BBOX.W + (BBOX.E - BBOX.W) * i / NX, e = BBOX.W + (BBOX.E - BBOX.W) * (i + 1) / NX;
-  const bb = `(${s},${w},${n},${e})`;
-  console.log(`Ruta ${i * NY + j + 1}/${NX * NY} …`);
-  const poly = await overpass(`[out:json][timeout:300];(
-    way["natural"~"^(water|wood|wetland|bare_rock|scree)$"]${bb};relation["natural"~"^(water|wood|wetland|bare_rock)$"]${bb};
-    way["landuse"~"^(forest|residential|industrial|commercial|retail|construction|farmland|meadow|orchard|farmyard|grass|cemetery|allotments|reservoir|recreation_ground)$"]${bb};
-    relation["landuse"~"^(forest|residential|industrial|commercial|retail|farmland|meadow)$"]${bb};
-    way["leisure"~"^(park|pitch|golf_course|garden)$"]${bb};way["waterway"="riverbank"]${bb};relation["waterway"="riverbank"]${bb};
-  );out geom;`);
-  for (const el of poly) addElement(grid, el);
-  await sleep(1500);
-  const lines = await overpass(`[out:json][timeout:300];(
-    way["waterway"~"^(river|canal)$"]${bb};
-    way["highway"~"^(motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link)$"]${bb};
-    way["railway"="rail"]${bb};
-  );out geom;`);
-  for (const el of lines) addElement(grid, el);
-  console.log(`  ${poly.length} ytor, ${lines.length} linjer`);
-  await sleep(1500);
+  const bb = `(${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)})`;
+  for (const [name, body] of THEMES) {
+    done++;
+    const fromCache = false;
+    console.log(`[${done}/${NX * NY * THEMES.length}] ruta ${i * NY + j + 1}/${NX * NY} – ${name}`);
+    const els = await overpass(`[out:json][timeout:180][maxsize:536870912];(${body(bb)});out geom;`);
+    for (const el of els) addElement(grid, el);
+    await sleep(800);
+  }
 }
 
 // namn och sevärdheter

@@ -100,7 +100,7 @@ func _ready() -> void:
 
 	var first_name := "Borås" if data.find_place("Borås") != null else "Grottbyn"
 	sim = Sim.new()
-	sim.setup(data, pathing, Vector2i(home_cell), first_name, int(args.get("seed", "1621")))
+	sim.setup(data, pathing, Vector2i(home_cell), first_name, int(args.get("seed", "1621")), resmodel)
 	scout.visible = false
 	territory = Territory.new()
 	add_child(territory)
@@ -211,10 +211,12 @@ func selection_text() -> String:
 		var label: String = sim.SPEC[b.kind]["label"]
 		var st := "färdig" if b.done else "byggs %d %%" % int(100.0 * b.progress / b.need)
 		var extra := ""
-		if b.kind == "house":
-			extra = "\nInvånare %d/%d" % [b.residents.size(), 4 + sim.era]
+		if b.kind == "house" or b.kind == "block":
+			extra = "\nInvånare %d/%d" % [b.residents.size(), sim.cap_of(b)]
 		elif b.kind == "farm":
 			extra = "\nBönder %d/5" % b.workers
+		elif sim.SPEC[b.kind].has("slots"):
+			extra = "\nArbetare %d/%d" % [b.workers, int(sim.SPEC[b.kind]["slots"])]
 		if b.kind == "hall":
 			var t: Dictionary = sim.towns[b.town]
 			extra = "\n%s · %d invånare" % [sim.LEVEL_NAMES[t["level"]], t["pop"]]

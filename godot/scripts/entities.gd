@@ -3,7 +3,7 @@ extends Node2D
 
 const Iso = preload("res://scripts/iso.gd")
 const PERSON_SCALE := 0.32
-const FIT := {"tent_a": 0.7, "tent_b": 0.7, "hut_a": 0.8, "hut_b": 0.8, "longhouse_a": 0.95, "cave": 1.0, "campfire": 0.55}
+const FIT := {"tent_a": 0.7, "tent_b": 0.7, "hut_a": 0.8, "hut_b": 0.8, "longhouse_a": 0.95, "cave": 1.0, "campfire": 0.55, "market": 0.9}
 
 var sim
 var sprites
@@ -18,23 +18,42 @@ func _process(_dt: float) -> void:
 
 func sprite_for(b) -> String:
 	var h: int = int(b.id) % 3
+	var h4: int = int(b.id) % 4
 	match b.kind:
 		"cave":
 			return "cave"
 		"hall":
 			if sim.era == 0:
 				return "campfire"
-			return "hall_long" if sim.era < 3 else "hall_keep"
+			if sim.era < 3:
+				return "hall_long"
+			return "hall_keep" if sim.era == 3 else "townhall"
 		"house":
 			match sim.era:
 				0: return ["tent_a", "tent_b", "hut_a"][h]
 				1: return ["hut_a", "hut_b", "longhouse_a"][h]
 				2: return ["timber_a", "timber_b", "timber_c"][h]
-				_: return ["stone_a", "stone_b", "stone_c"][h]
+				3: return ["stone_a", "stone_b", "stone_c"][h]
+				_:
+					var cols := ["red", "yellow", "white", "ochre", "grey"]
+					return "house_%s_%s" % [cols[int(b.id) % 5], "S" if int(b.id) % 7 < 3 else "M"]
+		"block":
+			match sim.era:
+				4: return ["block_brick_3", "block_brick_4", "block_cream_3"][h]
+				5: return ["block_cream_4", "block_grey_5", "block_brick_5", "block_cream_5"][h4]
+				_: return ["block_grey_6", "tower_a", "block_cream_6", "tower_b"][h4]
 		"farm":
 			return "field_gold" if h == 1 else "field_green"
 		"camp":
 			return "camp_stone" if b.variant == "stone" else "camp_wood"
+		"factory":
+			return "industrial_a" if h != 1 else "industrial_b"
+		"school":
+			return "school"
+		"market":
+			return "market"
+		"church":
+			return "church"
 	return "house_red_M"
 
 func person_color(p) -> String:

@@ -8,7 +8,7 @@ Byggd och testad med Godot 4.4.1; öppnas i senare 4.x (Godot kan fråga om uppg
 2. Tryck **F5**. En egen värld genereras (seed 1621).
 
 Andra världar (Debug → *Customize Run Instances* → *Main Run Args*, eller kommandoraden efter `--`):
-- `--seed=42` annan slumpvärld · `--size=512` större karta
+- `--seed=42` annan slumpvärld (obs: `--prewarm` blir långsamt när befolkningen är stor; 120 år ≈ 3–4 min) · `--size=512` större karta
 - `--boras` läser Borås-kartan från `../data/boras-data.json` (se tools/bake-boras.mjs) · `--data=sökväg`
 - `--speed=8` starthastighet · `--prewarm=60` förkör 60 år innan spelet visas (för tester)
 
@@ -21,7 +21,10 @@ Andra världar (Debug → *Customize Run Instances* → *Main Run Args*, eller k
 - Procedurell värld (hav, strand, skog, fält, myr, berg, sjöar, floder) med grotta nära vatten och skog
 - Människor med behov (mat, energi), jobb (fälla träd, bryta sten, samla bär, odla, bygga), födelse, åldrande, död
 - Automatisk stadsbyggnad: hus, åkrar, läger; kolonisering till nya städer
-- Eror (Mörka → Feudala → Slottsåldern → Imperieåldern) byter byggnadernas utseende (tält/koja → långhus → timmerhus → stenhus)
+- Sju tidsåldrar (Mörka → Feudala → Slottsåldern → Imperieåldern → Industriella → Moderna → Informationsåldern), knutna till tidigaste år
+  (1650, 1730, 1810, 1880, 1940, 2010) samt teknik, invånare och guld. Husen byter utseende (tält/koja → långhus → timmerhus → stenhus → villor → flerbostadshus/höghus).
+- Städerna planerar själva: bostäder, åkrar, skolor (teknik), marknader, kyrkor, fabriker (guld) och läger; centrum byts (lägereld → långhall → borg → stadshus)
+- Vägar uppgraderas från stigar till vägar när tekniken tillåter
 - Fog of war, minikarta, resursrad, logg
 - Stadsområden med färgade gränser (B), stadslista, stadsnivåer (läger → metropol), vägar/stigar mellan byggnader
 

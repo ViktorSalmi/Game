@@ -27,11 +27,11 @@ func _init() -> void:
 	sim.setup(d, pg, start, "Grottbyn")
 	var total := float(args.get("seconds", "3000"))
 	var t0 := Time.get_ticks_msec()
-	var next_report := 600.0
+	var next_report := 3600.0
 	while sim.time < total:
 		sim.step(0.1)
 		if sim.time >= next_report:
 			print(sim.summary())
-			next_report += 600.0
+			next_report += 3600.0
 	print("KLART på %d ms (%d sim-sekunder)" % [Time.get_ticks_msec() - t0, int(total)])
 	quit()

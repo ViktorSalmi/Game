@@ -1,5 +1,5 @@
 extends RefCounted
-## Simuleringen (ingen grafik): människor med behov, arbete, automatisk stadsbyggnad, åldrar, kolonisering.
+## Simuleringen (ingen grafik): människor med behov, arbete, stadsplanering, teknik, eror, kolonisering.
 
 signal log_event(text: String, important: bool)
 signal road_changed(chunks: Array)
@@ -10,17 +10,31 @@ const ResModel = preload("res://scripts/res_model.gd")
 
 const YEAR := 120.0              # spelsekunder per år
 const START_YEAR := 1621
-const ADULT := 6.0              # år
+const ADULT := 6.0               # år
+const MAX_PEOPLE := 1600
+
+const ERA_NAMES := ["Mörka åldern", "Feudala åldern", "Slottsåldern", "Imperieåldern", "Industriella åldern", "Moderna åldern", "Informationsåldern"]
+const ERA_YEAR := [0, 1650, 1730, 1810, 1880, 1940, 2010]   # tidigaste år för varje tidsålder
+const ERA_TECH := [0, 60, 220, 520, 1100, 2200, 4200]
+const ERA_POP := [0, 22, 60, 130, 260, 500, 900]
+const ERA_GOLD := [0, 80, 250, 600, 1200, 2500, 4500]
+const HOUSE_CAP := [4, 5, 6, 8, 12, 18, 24]
+const FARM_MULT := [1.0, 1.15, 1.3, 1.5, 2.0, 2.6, 3.2]
+
 const SPEC := {
-	"hall": {"size": 3, "need": 70.0, "wood": 0, "label": "Stadshus"},
-	"cave": {"size": 3, "need": 1.0, "wood": 0, "label": "Grotta (urhem)"},
-	"house": {"size": 2, "need": 22.0, "wood": 30, "label": "Hus"},
-	"farm": {"size": 3, "need": 26.0, "wood": 60, "label": "Åker"},
-	"camp": {"size": 2, "need": 20.0, "wood": 60, "label": "Läger"},
+	"hall": {"size": 3, "need": 70.0, "cost": {}, "label": "Stadshus"},
+	"cave": {"size": 3, "need": 1.0, "cost": {}, "label": "Grotta (urhem)"},
+	"house": {"size": 2, "need": 22.0, "cost": {"wood": 30}, "label": "Hus"},
+	"farm": {"size": 3, "need": 26.0, "cost": {"wood": 60}, "label": "Åker"},
+	"camp": {"size": 2, "need": 20.0, "cost": {"wood": 60}, "label": "Läger"},
+	"block": {"size": 3, "need": 45.0, "cost": {"wood": 50, "stone": 80, "gold": 40}, "label": "Flerbostadshus"},
+	"factory": {"size": 3, "need": 40.0, "cost": {"wood": 70, "stone": 60, "gold": 80}, "label": "Fabrik", "slots": 8},
+	"school": {"size": 3, "need": 35.0, "cost": {"wood": 60, "stone": 40}, "label": "Skola", "slots": 3},
+	"market": {"size": 3, "need": 25.0, "cost": {"wood": 50, "gold": 30}, "label": "Marknad", "slots": 3},
+	"church": {"size": 3, "need": 40.0, "cost": {"wood": 40, "stone": 80}, "label": "Kyrka"},
 }
 const LEVEL_NAMES := ["Läger", "By", "Stad", "Storstad", "Metropol"]
 const LEVEL_T := [0, 10, 30, 80, 200]
-const ERA_NAMES := ["Mörka åldern", "Feudala åldern", "Slottsåldern", "Imperieåldern"]
 const MALE := ["Anders", "Bengt", "Carl", "Erik", "Gustav", "Hans", "Ivar", "Jon", "Lars", "Magnus", "Nils", "Olof", "Per", "Sven", "Axel", "Knut"]
 const FEMALE := ["Anna", "Brita", "Cecilia", "Elin", "Gunilla", "Ingrid", "Karin", "Lena", "Maria", "Sara", "Ulla", "Astrid", "Britta", "Disa", "Freja", "Greta"]
 const GEN_A := ["Björk", "Ek", "Havs", "Sol", "Järn", "Dal", "Strand", "Fjäll", "Skog", "Mo", "Lund", "Vind"]
@@ -32,9 +46,11 @@ var res
 var rng := RandomNumberGenerator.new()
 var time := 0.0
 var stock := {"wood": 200, "food": 200, "gold": 100, "stone": 200}
+var tech := 0.0
 var era := 0
 var people: Array = []
 var buildings: Array = []
+var bmap := {}
 var towns: Array = []
 var occupied := PackedByteArray()
 var next_id := 1
@@ -46,14 +62,16 @@ var acc_era := 0.0
 var acc_col := 0.0
 var deaths := 0
 var births := 0
-var chunk_cb: Callable
 
-func setup(map_data, path_grid, start: Vector2i, town_name: String, seed_value: int = 1621) -> void:
+func setup(map_data, path_grid, start: Vector2i, town_name: String, seed_value: int = 1621, res_model = null) -> void:
 	data = map_data
 	pathing = path_grid
 	rng.seed = seed_value
-	res = ResModel.new()
-	res.setup(data)
+	if res_model != null:
+		res = res_model
+	else:
+		res = ResModel.new()
+		res.setup(data)
 	occupied.resize(data.w * data.h)
 	var hall
 	if data.generated:
@@ -87,10 +105,7 @@ func is_adult(p) -> bool:
 	return age_years(p) >= ADULT
 
 func building_by_id(id: int):
-	for b in buildings:
-		if b.id == id:
-			return b
-	return null
+	return bmap.get(id)
 
 func count_kind(kind: String, only_done: bool = true) -> int:
 	var n := 0
@@ -106,11 +121,40 @@ func adults_count() -> int:
 			n += 1
 	return n
 
+func cap_of(b) -> int:
+	match b.kind:
+		"house": return HOUSE_CAP[era]
+		"block": return 30 + 4 * maxi(0, era - 4)
+		"hall": return 6
+		"cave": return 6
+		"church": return 4
+	return 0
+
 func housing_cap() -> int:
-	return count_kind("hall") * 6 + count_kind("cave") * 6 + count_kind("house") * (4 + era)
+	var n := 0
+	for b in buildings:
+		if b.done:
+			n += cap_of(b)
+	return n
 
 func pop() -> int:
 	return people.size()
+
+func cost_of(kind: String) -> Dictionary:
+	var c: Dictionary = SPEC[kind]["cost"].duplicate()
+	if kind == "house" and era >= 3:
+		c = {"wood": 20, "stone": 15}
+	return c
+
+func can_afford(c: Dictionary) -> bool:
+	for k in c:
+		if stock[k] < c[k]:
+			return false
+	return true
+
+func pay(c: Dictionary) -> void:
+	for k in c:
+		stock[k] -= c[k]
 
 func spawn_person(c: Vector2, age: float) -> Object:
 	var p := Person.new()
@@ -119,7 +163,7 @@ func spawn_person(c: Vector2, age: float) -> Object:
 	p.female = rng.randf() < 0.5
 	p.pname = String(pick(FEMALE) if p.female else pick(MALE))
 	p.born = time - age * YEAR
-	p.lifespan = rng.randf_range(52.0, 78.0) * YEAR
+	p.lifespan = rng.randf_range(52.0, 78.0) * (1.0 + 0.07 * era) * YEAR
 	p.cell = c
 	p.hunger = rng.randf_range(65, 95)
 	p.energy = rng.randf_range(60, 95)
@@ -138,6 +182,18 @@ func nearest_building(kinds: Array, from: Vector2):
 			if d < bd:
 				bd = d
 				best = b
+	return best
+
+func town_of(c: Vector2) -> int:
+	var best := 0
+	var bd := 1e18
+	for i in towns.size():
+		var h = bmap.get(towns[i]["hall"])
+		if h != null and h.done:
+			var d: float = c.distance_squared_to(h.center())
+			if d < bd:
+				bd = d
+				best = i
 	return best
 
 # ---------- byggnader ----------
@@ -173,6 +229,9 @@ func add_building(kind: String, c: Vector2i, done: bool):
 			occupied[y * data.w + x] = 1
 	res.clear_area(c.x, c.y, b.size, b.size)
 	buildings.append(b)
+	bmap[b.id] = b
+	if not towns.is_empty():
+		b.town = town_of(b.center())
 	return b
 
 func find_site(anchor: Vector2, size: int, rmin: int, rmax: int, gap: int = 1) -> Vector2i:
@@ -184,21 +243,22 @@ func find_site(anchor: Vector2, size: int, rmin: int, rmax: int, gap: int = 1) -
 				return c
 	return Vector2i(-1, -1)
 
-## Tomt för hus/åker: växer utåt ringvis runt ett stadshus, med luft mellan byggnaderna.
+## Tomt för hus/åker/service: växer utåt ringvis runt ett stadshus, med luft som minskar med tiden.
 func plan_site(hall, size: int, farm: bool) -> Vector2i:
 	var near := 0
 	for b in buildings:
-		if b.center().distance_to(hall.center()) < 28.0:
+		if b.center().distance_to(hall.center()) < 30.0:
 			near += 1
-	var rmin: int = 5 + int(sqrt(float(near)) * 1.6) + (4 if farm else 0)
+	var rmin: int = 4 + int(sqrt(float(near)) * 1.3) + (4 if farm else 0)
+	var gap := 2 if era < 3 else 1
 	var best := Vector2i(-1, -1)
 	var bs := 1e9
 	var found := 0
-	for r in range(rmin, rmin + 11):
+	for r in range(rmin, rmin + 12):
 		for attempt in 10:
 			var a := rng.randf() * TAU
 			var c := Vector2i(int(hall.center().x + cos(a) * r) - size / 2, int(hall.center().y + sin(a) * r) - size / 2)
-			if can_place(c, size, 2):
+			if can_place(c, size, gap):
 				var score := Vector2(c).distance_to(hall.center()) + rng.randf() * 4.0
 				if score < bs:
 					bs = score
@@ -223,6 +283,8 @@ func complete_building(b) -> void:
 		var h = nearest_building(["hall"], b.center())
 		if h != null:
 			carve_road(Vector2i(b.center()), Vector2i(h.center()))
+		if b.kind == "school" or b.kind == "factory" or b.kind == "market" or b.kind == "church":
+			log_event.emit("%s byggd i %s" % [SPEC[b.kind]["label"], towns[b.town]["name"]], false)
 
 func nearest_other_hall(b):
 	var best = null
@@ -235,17 +297,30 @@ func nearest_other_hall(b):
 				best = h
 	return best
 
-## Stig/väg mellan två punkter: markerar rutor som lokalväg (klass 4) och talar om vilka kartbitar som ändrats.
+func road_class() -> int:
+	return 4 if era < 3 else 1
+
+## Stig/väg mellan två punkter; klassen uppgraderas med tiden.
 func carve_road(from_c: Vector2i, to_c: Vector2i) -> void:
 	var path: Array[Vector2i] = pathing.find_path(from_c, to_c)
 	if path.size() < 2 or path.size() > 90:
 		return
 	var dirty := {}
+	var rc := road_class()
 	for c in path:
 		var i: int = c.y * data.w + c.x
 		if occupied[i] == 0 and data.road[i] == 0 and data.biome[i] != 0 and data.biome[i] != 1:
-			data.road[i] = 4
+			data.road[i] = rc
 			dirty[Vector2i(c.x / 32, c.y / 32)] = true
+	if not dirty.is_empty():
+		road_changed.emit(dirty.keys())
+
+func upgrade_roads() -> void:
+	var dirty := {}
+	for i in data.road.size():
+		if data.road[i] == 4:
+			data.road[i] = 1
+			dirty[Vector2i((i % data.w) / 32, (i / data.w) / 32)] = true
 	if not dirty.is_empty():
 		road_changed.emit(dirty.keys())
 
@@ -256,12 +331,15 @@ func name_for_town(c: Vector2) -> String:
 		var nm := String(p["n"])
 		if used_places.has(nm):
 			continue
-		var d: float = Vector2(float(p["x"]), float(p["y"])).distance_to(c)
+		var d := Vector2(float(p["x"]), float(p["y"])).distance_to(c)
 		if d < bd:
 			bd = d
 			best = nm
 	if best == "":
-		best = String(pick(GEN_A)) + String(pick(GEN_B))
+		for tries in 30:
+			best = String(pick(GEN_A)) + String(pick(GEN_B))
+			if not used_places.has(best):
+				break
 	used_places[best] = true
 	return best
 
@@ -271,9 +349,11 @@ func kind_code(kind: String) -> int:
 
 func pick_gather_kind() -> String:
 	var farms := count_kind("farm")
+	var wood_t := 260.0 + 80.0 * era
+	var stone_t := 140.0 + 90.0 * era
 	var w := {
-		"wood": 0.0 if stock["wood"] > 600 else maxf(0.1, (260.0 - stock["wood"]) / 260.0 + 0.3),
-		"stone": maxf(0.0, (140.0 - stock["stone"]) / 140.0) * 0.7,
+		"wood": 0.0 if stock["wood"] > wood_t * 3.0 else maxf(0.12, (wood_t - stock["wood"]) / wood_t + 0.3),
+		"stone": maxf(0.0, (stone_t - stock["stone"]) / stone_t) * 0.9,
 		"food": maxf(0.0, (people.size() * 8.0 + 120.0 - stock["food"]) / 220.0) * (1.0 if farms == 0 else 0.4),
 	}
 	var total := 0.0
@@ -303,7 +383,7 @@ func go(p, target: Vector2i) -> bool:
 
 func end_job(p) -> void:
 	var t: String = p.job.get("type", "")
-	if t == "farm":
+	if t == "farm" or t == "work":
 		var b = building_by_id(int(p.job["bid"]))
 		if b != null:
 			b.workers = maxi(0, b.workers - 1)
@@ -344,7 +424,7 @@ func assign_home(p):
 	var best = null
 	var bd := 1e18
 	for h in buildings:
-		if h.kind == "house" and h.done and h.residents.size() < 4 + era:
+		if (h.kind == "house" or h.kind == "block") and h.done and h.residents.size() < cap_of(h):
 			var d: float = p.cell.distance_squared_to(h.center())
 			if d < bd:
 				bd = d
@@ -360,7 +440,7 @@ func start_sleep(p) -> bool:
 		h = nearest_building(["hall"], p.cell)
 	if h == null:
 		return false
-	return begin(p, {"type": "sleep", "target": Vector2i(h.center()), "house": h.kind == "house"}, Vector2i(h.center()))
+	return begin(p, {"type": "sleep", "target": Vector2i(h.center()), "house": h.kind == "house" or h.kind == "block"}, Vector2i(h.center()))
 
 func start_haul(p) -> bool:
 	var kinds := ["hall"] if p.carry_kind == "food" else ["hall", "camp"]
@@ -399,6 +479,23 @@ func start_farm(p) -> bool:
 		return false
 	best.workers += 1
 	if begin(p, {"type": "farm", "bid": best.id, "dur": 30.0}, Vector2i(best.center())):
+		return true
+	best.workers -= 1
+	return false
+
+func start_work(p) -> bool:
+	var best = null
+	var bd := 1e18
+	for b in buildings:
+		if b.done and SPEC[b.kind].has("slots") and b.workers < int(SPEC[b.kind]["slots"]):
+			var d: float = p.cell.distance_squared_to(b.center())
+			if d < bd:
+				bd = d
+				best = b
+	if best == null:
+		return false
+	best.workers += 1
+	if begin(p, {"type": "work", "bid": best.id, "dur": 30.0}, Vector2i(best.center())):
 		return true
 	best.workers -= 1
 	return false
@@ -450,6 +547,8 @@ func think(p) -> void:
 		return
 	if stock["food"] < people.size() * 12 + 200 and count_kind("farm") > 0 and start_farm(p):
 		return
+	if rng.randf() < 0.5 and start_work(p):
+		return
 	if start_gather(p, pick_gather_kind()):
 		return
 	if p.carry_amt > 0 and start_haul(p):
@@ -483,7 +582,21 @@ func work_tick(p, dt: float) -> void:
 				complete_building(b)
 				end_job(p)
 		"farm":
-			stock["food"] += dt * 0.42 * (1.0 + 0.25 * era)
+			stock["food"] += dt * 0.42 * FARM_MULT[era]
+			p.work_t -= dt
+			if p.work_t <= 0.0:
+				end_job(p)
+		"work":
+			var wb = building_by_id(int(p.job["bid"]))
+			if wb == null:
+				end_job(p)
+				return
+			match wb.kind:
+				"factory": stock["gold"] += dt * 0.55 * (1.0 + 0.1 * era)
+				"school": tech += dt * 0.06
+				"market":
+					stock["gold"] += dt * 0.30
+					stock["food"] += dt * 0.10
 			p.work_t -= dt
 			if p.work_t <= 0.0:
 				end_job(p)
@@ -560,7 +673,7 @@ func kill(p, why: String) -> void:
 		h.residents.erase(p.id)
 	people.erase(p)
 	deaths += 1
-	if deaths <= 6 or deaths % 10 == 0:
+	if deaths <= 4:
 		log_event.emit("✝ %s dog (%s, %d år)" % [p.pname, why, int(age_years(p))], false)
 
 func tick_person(p, dt: float) -> void:
@@ -605,7 +718,7 @@ func tick_person(p, dt: float) -> void:
 				p.state = "idle"
 				end_job(p)
 
-# ---------- ekonomi & AI ----------
+# ---------- städer ----------
 func update_towns() -> void:
 	var halls: Array = []
 	for t in towns:
@@ -633,127 +746,172 @@ func update_towns() -> void:
 			log_event.emit("📈 %s växer till %s (%d invånare)" % [t["name"], LEVEL_NAMES[lv].to_lower(), t["pop"]], true)
 
 func next_era_text() -> String:
-	var n := people.size()
-	match era:
-		0: return "Mot Feudala åldern: invånare %d/25 · hus %d/5 · mat %d/300 · guld %d/100" % [n, count_kind("house"), stock["food"], stock["gold"]]
-		1: return "Mot Slottsåldern: invånare %d/80 · städer %d/3 · mat %d/700 · guld %d/400" % [n, towns.size(), stock["food"], stock["gold"]]
-		2: return "Mot Imperieåldern: invånare %d/170 · städer %d/5 · mat %d/1500 · guld %d/1000" % [n, towns.size(), stock["food"], stock["gold"]]
-	return "Högsta tidsåldern i den här versionen"
+	if era >= ERA_NAMES.size() - 1:
+		return "Högsta tidsåldern i den här versionen"
+	var n := era + 1
+	return "Mot %s (tidigast %d): teknik %d/%d · invånare %d/%d · guld %d/%d" % [ERA_NAMES[n], ERA_YEAR[n], int(tech), ERA_TECH[n], people.size(), ERA_POP[n], stock["gold"], ERA_GOLD[n]]
 
 func economy() -> void:
 	update_towns()
-	var adults := 0
-	for p in people:
-		if is_adult(p):
-			adults += 1
+	var adults := adults_count()
 	stock["gold"] += adults * 0.012
+	tech += adults * 0.0012 + count_kind("school") * 0.02
 	var cap := housing_cap()
-	if people.size() < cap and stock["food"] > people.size() * 4 + 40 and rng.randf() < 0.04:
-		var h = nearest_building(["house", "hall"], Vector2(data.w, data.h) * 0.5)
-		var hs: Array = buildings.filter(func(b): return b.done and (b.kind == "house" or b.kind == "hall"))
-		if not hs.is_empty():
-			h = pick(hs)
-			var c: Vector2 = h.center() + Vector2(rng.randf_range(-1, 1), 2.0)
-			var kid = spawn_person(c, 0.0)
-			kid.hunger = 90.0
-			births += 1
+	if people.size() < mini(cap, MAX_PEOPLE) and stock["food"] > people.size() * 4 + 40:
+		var rate := 0.025 + adults * 0.00013
+		if rng.randf() < rate:
+			var hs: Array = buildings.filter(func(b): return b.done and (b.kind == "house" or b.kind == "hall" or b.kind == "block"))
+			if not hs.is_empty():
+				var h = pick(hs)
+				var kid = spawn_person(h.center() + Vector2(rng.randf_range(-1, 1), 2.0), 0.0)
+				kid.hunger = 90.0
+				births += 1
 	for k in ["wood", "stone", "food", "gold"]:
-		stock[k] = minf(stock[k], 5000.0)
+		stock[k] = minf(stock[k], 9000.0)
+
+func _town_cap(i: int) -> int:
+	var n := 0
+	for b in buildings:
+		if b.done and b.town == i:
+			n += cap_of(b)
+	return n
+
+func _town_count(i: int, kind: String) -> int:
+	var n := 0
+	for b in buildings:
+		if b.kind == kind and b.town == i:
+			n += 1
+	return n
+
+func _town_pending(i: int) -> int:
+	var n := 0
+	for b in buildings:
+		if not b.done and b.town == i:
+			n += 1
+	return n
+
+func _housing_kind(pop_t: int) -> String:
+	if era >= 4 and pop_t >= 50 and rng.randf() < (0.5 if era == 4 else 0.75):
+		return "block"
+	return "house"
+
+func _choose_kind(i: int) -> String:
+	var t: Dictionary = towns[i]
+	var pop_t: int = t["pop"]
+	var cap_t := _town_cap(i)
+	var adults_t := int(pop_t * 0.75)
+	var farms_t := _town_count(i, "farm")
+	if pop_t >= cap_t - 2:
+		return _housing_kind(pop_t)
+	if farms_t * 5.0 * FARM_MULT[era] < adults_t * 0.55 and farms_t < adults_t / 3 + 2:
+		return "farm"
+	if era >= 1 and pop_t >= 25 and _town_count(i, "school") < 1 + pop_t / 150:
+		return "school"
+	if era >= 2 and pop_t >= 35 and _town_count(i, "market") < 1 + pop_t / 120:
+		return "market"
+	if era >= 2 and pop_t >= 45 and _town_count(i, "church") < 1 + pop_t / 160:
+		return "church"
+	if era >= 4 and pop_t >= 90 and _town_count(i, "factory") < pop_t / 70:
+		return "factory"
+	if pop_t >= cap_t - 7:
+		return _housing_kind(pop_t)
+	return ""
 
 func ai_build() -> void:
-	var pending := 0
-	for b in buildings:
-		if not b.done:
-			pending += 1
-	if pending >= 2 or people.size() < 3:
+	if people.size() < 3:
 		return
-	var n := people.size()
-	var adults := adults_count()
-	var cap := housing_cap()
-	var farms := count_kind("farm")
-	var kind := ""
-	if n >= cap - 2 and stock["wood"] >= 30:
-		kind = "house"
-	elif farms * 5 < adults * 0.6 and farms < adults / 4 + 2 and stock["wood"] >= 60:
-		kind = "farm"
-	elif stock["wood"] >= 60 and _camp_needed("wood"):
-		kind = "camp_wood"
-	elif stock["wood"] >= 60 and stock["stone"] < 80 and _camp_needed("stone"):
-		kind = "camp_stone"
-	if kind == "":
-		return
-	var halls: Array = buildings.filter(func(b): return b.kind == "hall" and b.done)
-	if halls.is_empty():
-		return
-	var site := Vector2i(-1, -1)
-	var bk := kind
-	if kind.begins_with("camp"):
-		bk = "camp"
-		var code := ResModel.TREE if kind == "camp_wood" else ResModel.ROCK
-		var h = pick(halls)
-		var t: Vector2i = res.find_nearest(code, Vector2i(h.center()), 45)
-		if t.x >= 0:
-			site = find_site(Vector2(t) + Vector2(0.5, 0.5), 2, 2, 6)
-	else:
-		var h = pick(halls)
-		site = plan_site(h, int(SPEC[bk]["size"]), bk == "farm")
-	if site.x < 0:
-		return
-	var w := int(SPEC[bk]["wood"])
-	if stock["wood"] < w:
-		return
-	stock["wood"] -= w
-	var nb = add_building(bk, site, false)
-	if kind == "camp_stone":
-		nb.variant = "stone"
-	elif kind == "camp_wood":
-		nb.variant = "wood"
+	var order: Array = range(towns.size())
+	for k in range(order.size() - 1, 0, -1):
+		var j := rng.randi() % (k + 1)
+		var tmp = order[k]
+		order[k] = order[j]
+		order[j] = tmp
+	var started := 0
+	for i in order:
+		if started >= 3:
+			break
+		if _town_pending(i) >= 1:
+			continue
+		var hall = building_by_id(towns[i]["hall"])
+		if hall == null or not hall.done:
+			continue
+		var kind := _choose_kind(i)
+		if kind == "":
+			continue
+		var cost := cost_of(kind)
+		if not can_afford(cost):
+			continue
+		var site := plan_site(hall, int(SPEC[kind]["size"]), kind == "farm")
+		if site.x < 0:
+			continue
+		pay(cost)
+		var nb = add_building(kind, site, false)
+		nb.town = i
+		started += 1
+	# läger nära träd/sten (globalt)
+	var camp := ""
+	if stock["wood"] >= 60 and _camp_needed("wood"):
+		camp = "wood"
+	elif stock["wood"] >= 60 and stock["stone"] < 80 + 60 * era and _camp_needed("stone"):
+		camp = "stone"
+	if camp != "":
+		var halls: Array = buildings.filter(func(b): return b.kind == "hall" and b.done)
+		if not halls.is_empty():
+			var h = pick(halls)
+			var code := ResModel.TREE if camp == "wood" else ResModel.ROCK
+			var t: Vector2i = res.find_nearest(code, Vector2i(h.center()), 45)
+			if t.x >= 0:
+				var site := find_site(Vector2(t) + Vector2(0.5, 0.5), 2, 2, 6)
+				if site.x >= 0:
+					stock["wood"] -= 60
+					var nb2 = add_building("camp", site, false)
+					nb2.variant = camp
 
 func _camp_needed(kind: String) -> bool:
 	var code := ResModel.TREE if kind == "wood" else ResModel.ROCK
 	var halls: Array = buildings.filter(func(b): return b.kind in ["hall", "camp"] and b.done)
 	if halls.is_empty():
 		return false
-	var h = halls[0]
-	var best := 1e9
 	for d in halls:
 		var t: Vector2i = res.find_nearest(code, Vector2i(d.center()), 14)
 		if t.x >= 0:
 			return false
-	var far: Vector2i = res.find_nearest(code, Vector2i(h.center()), 45)
+	var far: Vector2i = res.find_nearest(code, Vector2i(halls[0].center()), 45)
 	return far.x >= 0
 
 func check_era() -> void:
-	var n := people.size()
-	var houses := count_kind("house")
-	if era == 0 and n >= 25 and houses >= 5 and stock["food"] >= 300 and stock["gold"] >= 100:
-		stock["food"] -= 300
-		stock["gold"] -= 100
-		era = 1
-	elif era == 1 and n >= 80 and towns.size() >= 3 and stock["food"] >= 700 and stock["gold"] >= 400:
-		stock["food"] -= 700
-		stock["gold"] -= 400
-		era = 2
-	elif era == 2 and n >= 170 and towns.size() >= 5 and stock["food"] >= 1500 and stock["gold"] >= 1000:
-		stock["food"] -= 1500
-		stock["gold"] -= 1000
-		era = 3
-	else:
+	if era >= ERA_NAMES.size() - 1:
 		return
-	log_event.emit("🏰 %s inleds! (%d invånare)" % [ERA_NAMES[era], n], true)
+	var n := era + 1
+	if year() >= ERA_YEAR[n] and tech >= ERA_TECH[n] and people.size() >= ERA_POP[n] and stock["gold"] >= ERA_GOLD[n]:
+		stock["gold"] -= ERA_GOLD[n]
+		era = n
+		log_event.emit("🏰 %s inleds! (%d invånare, teknik %d)" % [ERA_NAMES[era], people.size(), int(tech)], true)
+		if era == 3 or era == 5:
+			upgrade_roads()
 
 func colonize() -> void:
-	if people.size() < 24 or adults_count() < 14 or stock["wood"] < 160 or stock["food"] < 160 or towns.size() >= 2 + people.size() / 35:
+	if towns.size() >= mini(30, 3 + people.size() / 40) or stock["wood"] < 120 or stock["food"] < 150:
 		return
 	for b in buildings:
 		if b.kind == "hall" and not b.done:
 			return
-	var halls: Array = buildings.filter(func(b): return b.kind == "hall" and b.done)
-	var src = pick(halls)
+	var src_i := 0
+	var best_pop := -1
+	for i in towns.size():
+		if towns[i]["pop"] > best_pop:
+			best_pop = towns[i]["pop"]
+			src_i = i
+	if best_pop < 22:
+		return
+	var src = building_by_id(towns[src_i]["hall"])
+	if src == null:
+		return
+	var halls: Array = buildings.filter(func(b): return b.kind == "hall")
 	var site := Vector2i(-1, -1)
-	for i in 30:
+	for i in 40:
 		var a := rng.randf() * TAU
-		var r := rng.randf_range(20, 34)
+		var r := rng.randf_range(20, 36)
 		var c := Vector2i(int(src.center().x + cos(a) * r) - 1, int(src.center().y + sin(a) * r) - 1)
 		var ok := can_place(c, 3, 2)
 		if ok:
@@ -765,20 +923,20 @@ func colonize() -> void:
 			break
 	if site.x < 0:
 		return
-	stock["wood"] -= 100
+	stock["wood"] -= 80
 	var hall = add_building("hall", site, false)
 	var sent := 0
 	for p in people:
 		if sent >= 5:
 			break
-		if is_adult(p) and p.job.get("type", "") != "build" and p.state != "sleep":
+		if is_adult(p) and p.job.get("type", "") != "build" and p.state != "sleep" and p.town == src_i:
 			end_job(p)
 			hall.builders += 1
 			if begin(p, {"type": "build", "bid": hall.id}, Vector2i(hall.center())):
 				sent += 1
 			else:
 				hall.builders -= 1
-	log_event.emit("🧭 Nybyggare lämnar för att grunda en ny stad…", false)
+	log_event.emit("🧭 Nybyggare lämnar %s för att grunda en ny stad…" % towns[src_i]["name"], false)
 
 func step(dt: float) -> void:
 	time += dt
@@ -793,7 +951,7 @@ func step(dt: float) -> void:
 		acc_eco -= 1.0
 		economy()
 	acc_ai += dt
-	if acc_ai >= 6.0:
+	if acc_ai >= 4.0:
 		acc_ai = 0.0
 		ai_build()
 	acc_era += dt
@@ -801,16 +959,13 @@ func step(dt: float) -> void:
 		acc_era = 0.0
 		check_era()
 	acc_col += dt
-	if acc_col >= 30.0:
+	if acc_col >= 40.0:
 		acc_col = 0.0
 		if time > 1500.0:
 			colonize()
 
 func summary() -> String:
-	var adults := 0
-	for p in people:
-		if is_adult(p):
-			adults += 1
-	return "%s | invånare %d (vuxna %d) födda %d döda %d | hus %d åker %d läger %d städer %d | trä %d mat %d sten %d guld %d | %s" % [
-		date_text(), people.size(), adults, births, deaths, count_kind("house"), count_kind("farm"), count_kind("camp"), towns.size(),
-		stock["wood"], stock["food"], stock["stone"], stock["gold"], ERA_NAMES[era]]
+	var adults := adults_count()
+	return "%s | inv %d (vuxna %d) f%d d%d | hus %d block %d åker %d fabrik %d skola %d | städer %d | trä %d mat %d sten %d guld %d tek %d | %s" % [
+		date_text(), people.size(), adults, births, deaths, count_kind("house"), count_kind("block"), count_kind("farm"), count_kind("factory"), count_kind("school"),
+		towns.size(), stock["wood"], stock["food"], stock["stone"], stock["gold"], int(tech), ERA_NAMES[era]]

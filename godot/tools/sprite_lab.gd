@@ -545,6 +545,58 @@ func model_campfire() -> Node3D:
 		box(n, base + Vector3(0, 1.5, 0), Vector3(1.1, 1.4, 0.06), mat(Color("a8845a")))
 	return n
 
+func model_townhall() -> Node3D:
+	var n := Node3D.new()
+	var wall := Color("d9cfae")
+	box(n, Vector3(0, 4.0, 0), Vector3(20.0, 8.0, 9.0), mat(wall, plaster(wall), Vector3(5, 2, 1)))
+	box(n, Vector3(0, 0.5, 0), Vector3(20.6, 1.0, 9.6), mat(wall.darkened(0.3)))
+	hip_roof(n, 20.0, 9.0, 8.0, 2.8, mat(Color("4a4a50"), tiles(Color("4a4a50")), Vector3(8, 2, 1)))
+	box(n, Vector3(0, 11.0, 0), Vector3(5.0, 14.0, 5.0), mat(wall, plaster(wall), Vector3(2, 4, 1)))
+	cone(n, Vector3(0, 20.0, 0), 3.6, 5.0, mat(Color("3d4a52")), 4)
+	var face := mat(Color("f4f0e6"))
+	box(n, Vector3(0, 14.0, 2.55), Vector3(2.4, 2.4, 0.15), face)
+	box(n, Vector3(2.55, 14.0, 0), Vector3(0.15, 2.4, 2.4), face)
+	box(n, Vector3(0, 22.8, 0), Vector3(0.12, 2.0, 0.12), mat(Color("5a4026")))
+	box(n, Vector3(0.7, 23.2, 0), Vector3(1.4, 0.9, 0.06), mat(Color("c0392b")))
+	windows_front(n, 17.0, 9.0, 8.0, 6, 1, 4.2, 3.0, 1.1, 2.4)
+	box(n, Vector3(0, 1.6, 4.56), Vector3(2.2, 3.2, 0.14), mat(Color("3a2a1c")))
+	return n
+
+func model_tower(levels: int, glass: Color) -> Node3D:
+	var n := Node3D.new()
+	var w := 14.0
+	var d := 11.0
+	var h := 3.4 * levels
+	var gm := mat(glass, null, Vector3.ONE, 0.25)
+	box(n, Vector3(0, h / 2, 0), Vector3(w, h, d), gm)
+	var band := mat(glass.darkened(0.45))
+	for lv in levels:
+		box(n, Vector3(0, 3.4 * (lv + 1) - 0.2, d / 2 + 0.03), Vector3(w + 0.1, 0.35, 0.1), band)
+		box(n, Vector3(w / 2 + 0.03, 3.4 * (lv + 1) - 0.2, 0), Vector3(0.1, 0.35, d + 0.1), band)
+	for i in 5:
+		box(n, Vector3(-w / 2 + i * w / 4.0, h / 2, d / 2 + 0.04), Vector3(0.22, h, 0.1), band)
+	box(n, Vector3(0, h + 0.4, 0), Vector3(w + 0.4, 0.8, d + 0.4), mat(Color("5d6a72")))
+	box(n, Vector3(w * 0.2, h + 1.8, 0), Vector3(2.6, 2.0, 2.6), mat(Color("8a9096")))
+	box(n, Vector3(-w * 0.15, h + 4.0, 0), Vector3(0.18, 6.0, 0.18), mat(Color("9aa0a6")))
+	box(n, Vector3(0, 1.8, d / 2 + 0.06), Vector3(3.0, 3.4, 0.14), mat(Color("2a2f33")))
+	return n
+
+func model_market() -> Node3D:
+	var n := Node3D.new()
+	var awn := mat(Color.WHITE, rows_tex(Color("c0392b"), Color("f1ece0")), Vector3(2, 1, 1), 0.9)
+	for k in 4:
+		var px := -4.5 + (k % 2) * 7.0
+		var pz := -3.0 + (k / 2) * 6.0
+		for sx in [-1, 1]:
+			for sz in [-1, 1]:
+				box(n, Vector3(px + sx * 1.9, 1.4, pz + sz * 1.3), Vector3(0.2, 2.8, 0.2), mat(Color("5a4026")))
+		box(n, Vector3(px, 2.95, pz), Vector3(4.2, 0.3, 3.2), awn)
+		box(n, Vector3(px, 0.6, pz), Vector3(3.2, 1.2, 1.2), mat(Color("8a6a44"), planks(Color("8a6a44")), Vector3(2, 1, 1)))
+		ball(n, Vector3(px - 0.8, 1.35, pz), 0.35, mat(Color("d4263c")))
+		ball(n, Vector3(px + 0.2, 1.35, pz), 0.35, mat(Color("e0a020")))
+		ball(n, Vector3(px + 1.0, 1.35, pz), 0.35, mat(Color("5a9a38")))
+	return n
+
 func model_hall_long() -> Node3D:
 	var n := model_longhouse(true)
 	box(n, Vector3(-8.2, 3.0, 0), Vector3(0.3, 6.0, 0.3), mat(Color("5a4026")))
@@ -658,6 +710,10 @@ func _initialize() -> void:
 		await shoot(model_keep(), "hall_keep", out, 44.0, 8.0, 12.0)
 		await shoot(model_hall_long(), "hall_long", out, 30.0, 3.0, 16.0)
 		await shoot(model_campfire(), "campfire", out, 20.0, 1.2, 10.0)
+		await shoot(model_townhall(), "townhall", out, 44.0, 9.0, 20.0)
+		await shoot(model_tower(10, Color("6f93ad")), "tower_a", out, 60.0, 17.0, 14.0)
+		await shoot(model_tower(14, Color("9db4c4")), "tower_b", out, 74.0, 24.0, 14.0)
+		await shoot(model_market(), "market", out, 24.0, 1.8, 14.0)
 		print("eror klara")
 	if which == "all" or which == "trees":
 		_setup(256)

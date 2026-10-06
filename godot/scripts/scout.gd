@@ -25,7 +25,7 @@ func speed_here() -> float:
 		1: m = 0.5
 		4: m = 0.8
 		6: m = 0.7
-	if data.road_at(x, y) == 1:
+	if data.road_at(x, y) != 0 and data.road_at(x, y) != 2:
 		m = 1.5
 	return base_speed * m
 

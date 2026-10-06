@@ -22,6 +22,9 @@ var hi := 1.0
 var places: Array = []
 var pois: Array = []
 var counts := PackedInt32Array()
+var bld := PackedInt32Array()       # x4,y4,w4,h4,meta (kvartsrutor; meta = typ*16+våningar)
+var bld_index := {}                 # Vector2i(kartbit) -> PackedInt32Array med startindex i bld
+const CS := 32
 
 func load_any(extra_path: String = "") -> bool:
 	var candidates: Array = []
@@ -60,9 +63,24 @@ func load_file(path: String) -> bool:
 		elev[i] = float(ea[i])
 	places = d["places"]
 	pois = d["pois"]
+	bld = PackedInt32Array(d.get("bld", []))
+	_index_buildings()
 	_stats()
 	ok = true
 	return true
+
+func _index_buildings() -> void:
+	bld_index.clear()
+	for i in range(0, bld.size() - 4, 5):
+		var cx := int((bld[i] + bld[i + 2] * 0.5) / 4.0) / CS
+		var cy := int((bld[i + 1] + bld[i + 3] * 0.5) / 4.0) / CS
+		var k := Vector2i(cx, cy)
+		if not bld_index.has(k):
+			bld_index[k] = PackedInt32Array()
+		bld_index[k].append(i)
+
+func buildings_in_chunk(c: Vector2i) -> PackedInt32Array:
+	return bld_index.get(c, PackedInt32Array())
 
 func _rle(arr: Array, n: int) -> PackedByteArray:
 	var out := PackedByteArray()

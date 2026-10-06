@@ -11,7 +11,7 @@ export function makeProj(b, cell = CELL) {
 }
 export function makeGrid(proj, fill = 3) {
   const n = proj.w * proj.h;
-  return { proj, bio: new Uint8Array(n).fill(fill), prio: new Uint8Array(n), riv: new Uint8Array(n), road: new Uint8Array(n), inside: null };
+  return { proj, bio: new Uint8Array(n).fill(fill), prio: new Uint8Array(n), riv: new Uint8Array(n), road: new Uint8Array(n), inside: null, bld: [], bldIds: new Set() };
 }
 
 // biomer i spelet: 0 sjö, 1 vad/å, 3 gräs/åker, 4 skog, 6 berg, 8 myr, 9 bebyggelse, 10 utanför kommunen
@@ -92,13 +92,38 @@ export function drawLine(line, w, h, paint) {
   }
 }
 
+// Vägklass i rutnätet: 3 stor väg, 1 huvudgata, 4 lokalgata, 2 järnväg. Högre rang skriver över lägre.
+const HWY = { motorway: 3, motorway_link: 3, trunk: 3, trunk_link: 3, primary: 3, primary_link: 3, secondary: 1, secondary_link: 1, tertiary: 1, tertiary_link: 1, residential: 4, unclassified: 4, living_street: 4 };
+const RROAD = { 0: 0, 4: 1, 1: 2, 3: 3, 2: 4 };
+// Byggnadstyp: 0 bostad/småhus, 1 flerbostadshus/kommersiellt, 2 industri/lager, 3 offentligt/kyrka
+function buildingKind(b) {
+  if (/^(apartments|commercial|retail|office|hotel|dormitory|terrace)$/.test(b)) return 1;
+  if (/^(industrial|warehouse|factory|manufacture|storage_tank|hangar)$/.test(b)) return 2;
+  if (/^(church|chapel|cathedral|school|university|hospital|civic|public|government|train_station|stadium|museum|theatre|library|kindergarten)$/.test(b)) return 3;
+  return 0;
+}
+export function addBuilding(grid, el) {
+  const t = el.tags || {}, bb = el.bounds;
+  if (!t.building || !bb || grid.bldIds.has(el.type + el.id)) return;
+  if (/^(shed|garage|garages|carport|roof|hut|cabin|greenhouse|service|kiosk|ruins|construction|container|barn|farm_auxiliary|silo)$/.test(t.building)) return;
+  grid.bldIds.add(el.type + el.id);
+  const { proj } = grid, x0 = proj.px(bb.minlon), x1 = proj.px(bb.maxlon), y0 = proj.py(bb.maxlat), y1 = proj.py(bb.minlat);
+  const w = x1 - x0, h = y1 - y0;                       // i rutor (1 ruta = 50 m)
+  if (w * h * 2500 < 40) return;                         // < 40 m^2 hoppas över
+  if (x1 < 0 || y1 < 0 || x0 > proj.w || y0 > proj.h) return;
+  const levels = Math.max(1, Math.min(15, parseInt(t['building:levels']) || (buildingKind(t.building) === 1 ? 4 : buildingKind(t.building) === 2 ? 1 : 2)));
+  // kvartsrutor (12,5 m) som heltal: x, y, bredd, höjd, meta = typ*16 + våningar
+  grid.bld.push(Math.round(x0 * 4), Math.round(y0 * 4), Math.max(1, Math.round(w * 4)), Math.max(1, Math.round(h * 4)), buildingKind(t.building) * 16 + levels);
+}
+
 export function addElement(grid, el) {
   const { proj } = grid, { w, h } = proj, t = el.tags || {};
+  if (t.building) { addBuilding(grid, el); return; }
   if (el.type === 'way' && el.geometry) {
     const line = () => el.geometry.map(p => [proj.px(p.lon), proj.py(p.lat)]);
     if (t.waterway === 'river' || t.waterway === 'canal') { drawLine(line(), w, h, (x, y) => { grid.riv[y * w + x] = 1; }); return; }
-    if (t.highway) { drawLine(line(), w, h, (x, y) => { grid.road[y * w + x] = 1; }); return; }
-    if (t.railway === 'rail') { drawLine(line(), w, h, (x, y) => { if (!grid.road[y * w + x]) grid.road[y * w + x] = 2; }); return; }
+    if (t.highway) { const c = HWY[t.highway]; if (!c) return; drawLine(line(), w, h, (x, y) => { const i = y * w + x; if (RROAD[c] >= RROAD[grid.road[i]]) grid.road[i] = c; }); return; }
+    if (t.railway === 'rail') { drawLine(line(), w, h, (x, y) => { grid.road[y * w + x] = 2; }); return; }
   }
   const c = classify(t); if (!c) return;
   fillRings(ringsOf(el, proj), w, h, (x, y) => { const i = y * w + x; if (c.prio >= grid.prio[i]) { grid.prio[i] = c.prio; grid.bio[i] = c.biome; } });
@@ -135,7 +160,7 @@ export function finalize(grid, { bbox, elev, places, pois }) {
   const stats = {}; for (let i = 0; i < n; i++) stats[bio[i]] = (stats[bio[i]] || 0) + 1;
   return {
     data: { v: 1, name: 'Borås kommun', bbox: [bbox.S, bbox.W, bbox.N, bbox.E], cell: proj.cell, w, h, biome: rle(bio), road: rle(road),
-      estep: elev.step, ew: elev.ew, eh: elev.eh, elev: elev.data, lo, hi, places: pl, pois: po },
+      estep: elev.step, ew: elev.ew, eh: elev.eh, elev: elev.data, lo, hi, places: pl, pois: po, bld: grid.bld },
     stats,
   };
 }

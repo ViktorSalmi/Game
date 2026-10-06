@@ -15,6 +15,13 @@ Egen sökväg: kör med användararg `--data=C:\sökväg\boras-data.json`.
 - **M**: hela kartan · **F**: dimma av/på · **L**: förklaring · **Home**: till spejaren · **Esc**: avsluta
 - Klicka/dra i minikartan för att hoppa
 
+## Utseende (kodritat, inga färdiga bilder)
+- Marken är en enda shader: organiska kanter mellan skog/fält/vatten/bebyggelse, strand, hillshade, brus och rörligt vatten
+- Granar, tallar, björkar och ekar med skuggor; bärbuskar och stenar
+- Hus från OpenStreetMap (om `bld` finns i datan): sadeltak, skorstenar, fönster; flerbostadshus, industri
+- Vägklasser (stor väg, huvudgata, lokalgata, järnväg)
+- Obs: riktiga hus/lokalgator/skog kräver en ny körning av `node tools/bake-boras.mjs` (utan `--snabb`)
+
 ## Innehåll etapp 1
 - Terräng som GPU-meshar per kartbit (32×32 rutor), byggda efter behov runt kameran
 - Vägar och järnväg, ortsnamn och sevärdheter (skärmrymd, konstant textstorlek)

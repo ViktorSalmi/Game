@@ -4,6 +4,7 @@ extends Node2D
 const MapData = preload("res://scripts/map_data.gd")
 const Iso = preload("res://scripts/iso.gd")
 const Terrain = preload("res://scripts/terrain.gd")
+const ResModel = preload("res://scripts/res_model.gd")
 const Fog = preload("res://scripts/fog.gd")
 const Pathing = preload("res://scripts/pathing.gd")
 const Scout = preload("res://scripts/scout.gd")
@@ -13,6 +14,7 @@ const Hud = preload("res://scripts/hud.gd")
 
 var data
 var terrain
+var resmodel
 var fog
 var pathing
 var scout
@@ -32,14 +34,19 @@ func _ready() -> void:
 		var kv := a.trim_prefix("--").split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else "1"
 	RenderingServer.set_default_clear_color(Color(0.04, 0.055, 0.09))
+	var tint := CanvasModulate.new()
+	tint.color = Color(1.0, 0.985, 0.95)
+	add_child(tint)
 	var t0 := Time.get_ticks_msec()
 	data = MapData.new()
 	var found: bool = data.load_any(String(args.get("data", "")))
 	print("Karta: %s (%d x %d)  källa=%s  laddad på %d ms" % [data.map_name, data.w, data.h, data.source if found else "DEMO", Time.get_ticks_msec() - t0])
 
+	resmodel = ResModel.new()
+	resmodel.setup(data)
 	terrain = Terrain.new()
 	add_child(terrain)
-	terrain.setup(data)
+	terrain.setup(data, resmodel)
 
 	fog = Fog.new()
 	add_child(fog)
@@ -183,6 +190,7 @@ func _process(dt: float) -> void:
 	for c in vc:
 		mn = mn.min(c)
 		mx = mx.max(c)
+	terrain.objects.visible = cam.zoom.x >= 0.3
 	terrain.update_visible(mn - Vector2(8, 8), mx + Vector2(8, 8))
 	minimap.set_view(vc)
 
@@ -201,7 +209,7 @@ func _process(dt: float) -> void:
 		var ll: Vector2 = data.latlon(cx + 0.5, cy + 0.5)
 		var near: String = data.nearest_place(cx, cy)
 		var rd: int = data.road_at(cx, cy)
-		hud.info_label.text = "%s%s%s\nHöjd %d m%s\n%.4f°N  %.4f°E" % [data.BIOME_NAMES[b], " · väg" if rd == 1 else (" · järnväg" if rd == 2 else ""), "", int(data.elev_at(cx, cy)), ("  ·  nära " + near) if near != "" else "", ll.x, ll.y]
+		hud.info_label.text = "%s%s%s\nHöjd %d m%s\n%.4f°N  %.4f°E" % [data.BIOME_NAMES[b], (" · järnväg" if rd == 2 else (" · väg" if rd != 0 else "")), "", int(data.elev_at(cx, cy)), ("  ·  nära " + near) if near != "" else "", ll.x, ll.y]
 	hud.fps_label.text = "%d FPS · %d kartbitar" % [Engine.get_frames_per_second(), terrain.chunk_count()]
 
 	if args.has("report") and frame_no == int(args.get("frames", "90")):

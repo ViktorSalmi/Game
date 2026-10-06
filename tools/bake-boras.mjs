@@ -6,7 +6,12 @@ import fs from 'node:fs';
 import { makeProj, makeGrid, addElement, setBoundary, finalize, CELL } from './raster.mjs';
 
 const BBOX = { S: 57.56, W: 12.64, N: 57.92, E: 13.32 };
-const MIRRORS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const MIRRORS = [
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 import crypto from 'node:crypto';

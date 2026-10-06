@@ -82,15 +82,41 @@ const coords = [];
 for (let y = 0; y < eh; y++) for (let x = 0; x < ew; x++) {
   coords.push([BBOX.N - (y * step * CELL) / 110574, BBOX.W + (x * step * CELL) / (111320 * Math.cos((BBOX.S + BBOX.N) / 2 * Math.PI / 180))]);
 }
-try {
-  for (let i = 0; i < coords.length; i += 100) {
-    const part = coords.slice(i, i + 100);
-    const r = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${part.map(c => c[0].toFixed(5)).join(',')}&longitude=${part.map(c => c[1].toFixed(5)).join(',')}`);
-    const j = await r.json(); j.elevation.forEach((v, k) => { data[i + k] = Math.round(v); });
-    await sleep(350);
+// Höjd: Open-Meteo först, OpenTopoData som reserv. Cachas så att det bara behöver lyckas en gång.
+const efile = 'data/cache/elev.json';
+async function getJson(url, what) {
+  for (let a = 0; a < 6; a++) {
+    try {
+      const r = await fetch(url, { headers: { 'user-agent': 'evigheten-game/1.0' } });
+      const txt = await r.text();
+      let j = null; try { j = JSON.parse(txt); } catch { /* inte JSON */ }
+      if (r.ok && j && !j.error) return j;
+      console.warn(`  ${what}: ${r.status} ${(j && j.reason) || txt.slice(0, 120)} (försök ${a + 1}/6)`);
+    } catch (e) { console.warn(`  ${what}: ${e.message}`); }
+    await sleep(4000 * (a + 1));
   }
-  console.log('Höjddata klar');
-} catch (e) { console.warn('Höjddata misslyckades – platt terräng:', e.message); data.fill(200); }
+  return null;
+}
+async function fetchElevation(part) {
+  const m = await getJson(`https://api.open-meteo.com/v1/elevation?latitude=${part.map(c => c[0].toFixed(4)).join(',')}&longitude=${part.map(c => c[1].toFixed(4)).join(',')}`, 'open-meteo');
+  if (m && Array.isArray(m.elevation)) return m.elevation;
+  const o = await getJson(`https://api.opentopodata.org/v1/eudem25m?locations=${part.map(c => c[0].toFixed(4) + ',' + c[1].toFixed(4)).join('|')}`, 'opentopodata');
+  if (o && Array.isArray(o.results)) return o.results.map(r => r.elevation ?? 200);
+  return null;
+}
+let gotElev = false;
+if (fs.existsSync(efile)) { try { const c = JSON.parse(fs.readFileSync(efile, 'utf8')); if (c.length === data.length) { c.forEach((v, i) => { data[i] = v; }); gotElev = true; console.log('Höjddata från cache'); } } catch { /* ignore */ } }
+if (!gotElev && !CACHE_ONLY || !gotElev && CACHE_ONLY) {
+  let ok = true;
+  for (let i = 0; i < coords.length && ok; i += 50) {
+    const el = await fetchElevation(coords.slice(i, i + 50));
+    if (!el) { ok = false; break; }
+    el.forEach((v, k) => { data[i + k] = Math.round(v); });
+    await sleep(1100);
+  }
+  if (ok) { fs.writeFileSync(efile, JSON.stringify(data)); console.log('Höjddata klar'); }
+  else { console.warn('Höjddata misslyckades – platt terräng (kartan fungerar ändå).'); data.fill(200); }
+}
 
 if (!places.some(p => p.n === 'Borås')) places.push({ n: 'Borås', t: 'city', lat: 57.721, lon: 12.940 });
 if (CACHE_ONLY) console.log(`DELVIS: ${missing} bitar saknas i cachen och är tomma (utan skog/bebyggelse där).`);

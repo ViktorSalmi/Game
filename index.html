@@ -53,6 +53,14 @@ h3{margin:0 0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;c
   text-shadow:0 4px 30px rgba(0,0,0,.7);pointer-events:none;opacity:0;transition:opacity 1s;text-align:center;color:#fff}
 #banner small{display:block;font-size:15px;font-weight:500;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
 #help{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);color:var(--dim);font-size:11px;pointer-events:none;text-shadow:0 1px 3px #000}
+#mapview{position:fixed;inset:0;background:#0b0f18;z-index:50;display:none}
+#mapview canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+#mvleg{position:absolute;left:14px;top:14px;width:250px;background:linear-gradient(#45321b,#2b1d0f);border:2px solid var(--edge);border-radius:5px;padding:12px 14px;pointer-events:none}
+#mvleg div.l{display:flex;align-items:center;gap:8px;padding:2px 0}
+#mvleg i{width:16px;height:12px;border:1px solid rgba(0,0,0,.6);display:inline-block}
+#mvleg b{margin-left:auto;color:var(--dim);font-weight:400}
+#mvtip{position:absolute;pointer-events:none;background:rgba(20,12,5,.92);border:1px solid var(--edge);padding:5px 9px;border-radius:4px;display:none;white-space:nowrap}
+#mvclose{position:absolute;right:14px;top:14px}
 @media(max-width:900px){#right,#help{display:none} #log{width:260px}}
 </style>
 </head>
@@ -64,12 +72,13 @@ h3{margin:0 0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;c
 <div id="top" class="panel">
   <span id="res"></span>
   <span id="date"></span><span id="era"></span><span id="tod"></span>
-  <span id="spd"></span>
+  <span id="spd"></span><button class="btn" id="mapbtn" title="Visa hela kartan (K)">🗺 Karta</button>
 </div>
 <div id="right" class="panel"><h3>Riken</h3><div id="facs"></div><h3 style="margin-top:12px">Evolution</h3><div id="species"></div></div>
 <div id="inspect" class="panel"></div>
 <div id="log" class="panel"></div>
 <div id="mini" class="panel"><canvas id="mm" width="170" height="170"></canvas></div>
+<div id="mapview"><canvas id="mv"></canvas><div id="mvleg"></div><div id="mvtip"></div><button class="btn" id="mvclose">Stäng (K)</button></div>
 <div id="toasts"></div>
 <div id="banner"></div>
 <div id="help">WASD/pilar: ta över hjälten · dubbelklicka: ge order · dra: panorera · hjul: zoom · F: följ hjälten · mellanslag: paus · 1–5: hastighet</div>
@@ -153,7 +162,7 @@ async function loadBoras(){
     else if(params.get('procedural')!=='1'){const r=await fetch(params.get('data')||'data/boras-data.json');if(r.ok)d=await r.json()}
     if(!d||d.v!==1)return;
     BORAS={w:d.w,h:d.h,biome:rleDecode(d.biome,d.w*d.h),road:rleDecode(d.road,d.w*d.h),elev:d.elev,ew:d.ew,eh:d.eh,estep:d.estep,lo:d.lo,hi:d.hi,
-      places:d.places.map(p=>Object.assign({used:false},p)),name:d.name};
+      places:d.places.map(p=>Object.assign({used:false},p)),name:d.name,bbox:d.bbox,cell:d.cell,pois:d.pois};
     for(const p of d.pois)REALPOI.set(ckey(p.x>>4,p.y>>4),{x:p.x,y:p.y,type:POI_TYPE[p.k]||'ruin',usedAt:-1e9,name:p.n});
     $('help').insertAdjacentHTML('beforeend',' · Karta © OpenStreetMap-bidragsgivare');
   }catch(e){console.warn('Borås-data saknas – kör oändlig värld',e);BORAS=null}
@@ -1272,7 +1281,8 @@ addEventListener('keydown',e=>{
   if(k===' '){e.preventDefault();setSpeed(0)}
   else if('12345'.includes(k)&&k.length===1)setSpeed([1,2,4,8,16][+k-1]);
   else if(k==='f'){cam.follow='hero';selected=null}
-  else if(k==='escape'){selected=null;cam.follow='hero'}
+  else if(k==='k')toggleMap()
+  else if(k==='escape'){if($('mapview').style.display==='block')toggleMap(false);selected=null;cam.follow='hero'}
   if(k.startsWith('arrow'))e.preventDefault();
 });
 addEventListener('keyup',e=>{K[e.key.toLowerCase()]=false});
@@ -1296,6 +1306,63 @@ function clickAt(px,py){
   if(Math.hypot(hero.x-wx,hero.y-(wy+.3))<1.2){selected=null;cam.follow='hero';return}
   selected=best;if(best&&best.type!=='town'&&best.type!=='villager')cam.follow=best.ref;
 }
+
+/* =====================================================================
+   KARTÖVERSIKT (hela den inlästa kartan, utan simulering)
+   ===================================================================== */
+const BNAME=['Sjö','Å / vad','Sand','Gräs / åker','Skog','Torr mark','Berg','Snö','Myr','Bebyggelse','Utanför kommunen'];
+const MVCOL=['#1d4f8a','#4a9fd6','#e0cf94','#9bcf6a','#2f6b34','#cdb06a','#8a8578','#ffffff','#7e9f8a','#c9c3b8','#0b0f18'];
+let MV=null;
+function buildMapImage(){
+  const B=BORAS,c=document.createElement('canvas');c.width=B.w;c.height=B.h;const g=c.getContext('2d'),im=g.createImageData(B.w,B.h),rgb=MVCOL.map(hex2rgb),counts=new Array(11).fill(0);let roads=0,rails=0;
+  for(let y=0;y<B.h;y++)for(let x=0;x<B.w;x++){
+    const i=y*B.w+x,b=B.biome[i];counts[b]++;let [r,gg,bb]=rgb[b];
+    if(b>=2&&b<10){const sh=clamp(1+(elevAt(x-1,y-1)-elevAt(x+1,y+1))*.03,.78,1.22);r*=sh;gg*=sh;bb*=sh}
+    const rd=B.road[i];if(rd===1&&b<10){[r,gg,bb]=[255,208,90];roads++}else if(rd===2&&b<10){[r,gg,bb]=[30,30,30];rails++}
+    const k=i*4;im.data[k]=r;im.data[k+1]=gg;im.data[k+2]=bb;im.data[k+3]=255}
+  g.putImageData(im,0,0);
+  const tot=counts.reduce((a,v,i)=>a+(i<10?v:0),0);
+  $('mvleg').innerHTML=`<h3>${B.name} – hela kartan</h3>`+[0,1,4,3,8,9,6].map(i=>`<div class="l"><i style="background:${MVCOL[i]}"></i>${BNAME[i]}<b>${(counts[i]/tot*100).toFixed(1)}%</b></div>`).join('')
+    +`<div class="l"><i style="background:#ffd05a"></i>Väg<b>${roads} rutor</b></div><div class="l"><i style="background:#1e1e1e"></i>Järnväg<b>${rails} rutor</b></div><div class="l"><i style="background:#0b0f18"></i>Utanför kommunen<b></b></div>`
+    +`<div style="margin-top:8px;color:var(--dim);font-size:12px">${B.places.length} orter · ${B.pois.length} sevärdheter<br>1 ruta = ${B.cell} m · ${B.w}×${B.h}<br>Skrolla = zooma · dra = panorera · hovra för info</div>`;
+  return c;
+}
+function mvFit(){const B=BORAS,s=Math.min(innerWidth/B.w,(innerHeight-20)/B.h);MV.s=s;MV.ox=(innerWidth-B.w*s)/2;MV.oy=(innerHeight-B.h*s)/2}
+function toggleMap(force){
+  if(!BORAS){showToast('Ingen Borås-karta inläst (data/boras-data.json saknas)');return}
+  const el=$('mapview'),open=force!==undefined?force:el.style.display!=='block';
+  if(open){if(!MV){MV={img:buildMapImage(),s:1,ox:0,oy:0};mvFit()}MV.wasPaused=G.paused;G.paused=true;el.style.display='block';drawMapView()}
+  else{el.style.display='none';G.paused=MV?MV.wasPaused:false}
+}
+function drawMapView(){
+  if($('mapview').style.display!=='block')return;
+  const c=$('mv'),dpr=Math.min(2,devicePixelRatio||1);c.width=innerWidth*dpr;c.height=innerHeight*dpr;const g=c.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);
+  const B=BORAS;g.fillStyle='#0b0f18';g.fillRect(0,0,innerWidth,innerHeight);g.imageSmoothingEnabled=MV.s<1;
+  g.drawImage(MV.img,MV.ox,MV.oy,B.w*MV.s,B.h*MV.s);
+  g.textAlign='center';g.lineWidth=3;g.strokeStyle='rgba(0,0,0,.75)';
+  for(const p of B.places){const big=p.t==='city'?1:p.t==='town'?2:p.t==='suburb'?3:4;if(MV.s<.6&&big>2||MV.s<1.4&&big>3)continue;
+    const x=MV.ox+p.x*MV.s,y=MV.oy+p.y*MV.s;g.font=`600 ${big===1?15:big===2?13:11}px Georgia,serif`;g.fillStyle='#fff';g.strokeText(p.n,x,y-4);g.fillText(p.n,x,y-4);
+    g.fillStyle='#e5484d';g.beginPath();g.arc(x,y+2,big===1?4:2.5,0,6.3);g.fill()}
+  for(const p of B.pois){const x=MV.ox+p.x*MV.s,y=MV.oy+p.y*MV.s;g.fillStyle='#ffd45a';g.strokeStyle='#000';g.lineWidth=1.5;g.beginPath();g.moveTo(x,y-5);g.lineTo(x+4,y);g.lineTo(x,y+5);g.lineTo(x-4,y);g.closePath();g.fill();g.stroke();
+    if(MV.s>1.6){g.font='11px Georgia,serif';g.fillStyle='#ffd45a';g.lineWidth=3;g.strokeStyle='rgba(0,0,0,.75)';g.strokeText(p.n,x,y-8);g.fillText(p.n,x,y-8)}}
+}
+(()=>{
+  const mvc=$('mv');let d=null;
+  mvc.addEventListener('wheel',e=>{if(!MV)return;e.preventDefault();const k=e.deltaY<0?1.2:1/1.2,ns=clamp(MV.s*k,.2,12),f=ns/MV.s;MV.ox=e.clientX-(e.clientX-MV.ox)*f;MV.oy=e.clientY-(e.clientY-MV.oy)*f;MV.s=ns;drawMapView()},{passive:false});
+  mvc.addEventListener('pointerdown',e=>{d={x:e.clientX,y:e.clientY,ox:MV.ox,oy:MV.oy};mvc.setPointerCapture(e.pointerId)});
+  mvc.addEventListener('pointerup',()=>{d=null});
+  mvc.addEventListener('pointermove',e=>{
+    if(d){MV.ox=d.ox+e.clientX-d.x;MV.oy=d.oy+e.clientY-d.y;drawMapView()}
+    const B=BORAS,x=Math.floor((e.clientX-MV.ox)/MV.s),y=Math.floor((e.clientY-MV.oy)/MV.s),tip=$('mvtip');
+    if(!B||x<0||y<0||x>=B.w||y>=B.h){tip.style.display='none';return}
+    const b=B.biome[y*B.w+x],rd=B.road[y*B.w+x],bb=B.bbox,lat=bb[2]-y*B.cell/110574,lon=bb[1]+x*B.cell/(111320*Math.cos((bb[0]+bb[2])/2*Math.PI/180));
+    let near=null,bd=6;for(const p of B.places){const dd=Math.hypot(p.x-x,p.y-y);if(dd<bd){bd=dd;near=p.n}}
+    tip.innerHTML=`<b>${BNAME[b]}</b>${rd===1?' · väg':rd===2?' · järnväg':''}${b<10?` · ${Math.round(elevAt(x,y))} m`:''}${near?` · nära ${near}`:''}<br><span style="color:var(--dim)">${lat.toFixed(4)}°N ${lon.toFixed(4)}°E</span>`;
+    tip.style.display='block';tip.style.left=Math.min(innerWidth-260,e.clientX+14)+'px';tip.style.top=(e.clientY+14)+'px'});
+  $('mvclose').addEventListener('click',()=>toggleMap(false));
+  $('mapbtn').addEventListener('click',()=>toggleMap());
+  addEventListener('resize',()=>{if(MV){drawMapView()}});
+})();
 
 /* =====================================================================
    START
@@ -1341,7 +1408,7 @@ function frame(now){
   mmT+=rdt;if(mmT>1.2){mmT=0;drawMini()}
   requestAnimationFrame(frame);
 }
-async function boot(){await loadBoras();init();for(let i=0;i<20;i++)heroThink();requestAnimationFrame(frame)}
+async function boot(){await loadBoras();init();for(let i=0;i<20;i++)heroThink();requestAnimationFrame(frame);if(params.get('karta')==='1')toggleMap(true)}
 boot();
 window.__G=G;window.__W=W;window.__hero=()=>hero;
 </script>

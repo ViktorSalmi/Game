@@ -29,7 +29,9 @@ async function overpass(q, tries = 8) {
   throw new Error('Overpass svarade inte – kör skriptet igen lite senare, det fortsätter där det slutade.');
 }
 
-const proj = makeProj(BBOX), grid = makeGrid(proj);
+const QUICK = process.argv.includes('--snabb'); // hoppar över skogslagret; omärkt mark blir skog (typiskt för Sverige)
+const proj = makeProj(BBOX), grid = makeGrid(proj, QUICK ? 4 : 3);
+if (QUICK) console.log('SNABBLÄGE: skogslagret hoppas över, omärkt mark räknas som skog');
 console.log(`Rutnät ${proj.w}×${proj.h} (${CELL} m per ruta)`);
 
 // kommungräns
@@ -47,15 +49,16 @@ const THEMES = [
   ['bebyggelse/åker', bb => `way["landuse"~"^(residential|industrial|commercial|retail|construction|farmland|meadow|orchard|farmyard|grass|cemetery|allotments|recreation_ground)$"]${bb};relation["landuse"~"^(residential|industrial|commercial|retail|farmland|meadow)$"]${bb};way["leisure"~"^(park|pitch|golf_course|garden)$"]${bb};`],
   ['vägar/å/järnväg', bb => `way["waterway"~"^(river|canal)$"]${bb};way["highway"~"^(motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link)$"]${bb};way["railway"="rail"]${bb};`],
 ];
+const ACTIVE = THEMES.filter(t => !(QUICK && t[0] === 'skog'));
 let done = 0;
 for (let i = 0; i < NX; i++) for (let j = 0; j < NY; j++) {
   const s = BBOX.S + (BBOX.N - BBOX.S) * j / NY, n = BBOX.S + (BBOX.N - BBOX.S) * (j + 1) / NY;
   const w = BBOX.W + (BBOX.E - BBOX.W) * i / NX, e = BBOX.W + (BBOX.E - BBOX.W) * (i + 1) / NX;
   const bb = `(${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)})`;
-  for (const [name, body] of THEMES) {
+  for (const [name, body] of ACTIVE) {
     done++;
     const fromCache = false;
-    console.log(`[${done}/${NX * NY * THEMES.length}] ruta ${i * NY + j + 1}/${NX * NY} – ${name}`);
+    console.log(`[${done}/${NX * NY * ACTIVE.length}] ruta ${i * NY + j + 1}/${NX * NY} – ${name}`);
     const els = await overpass(`[out:json][timeout:180][maxsize:536870912];(${body(bb)});out geom;`);
     for (const el of els) addElement(grid, el);
     await sleep(800);

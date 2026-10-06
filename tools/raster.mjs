@@ -9,9 +9,9 @@ export function makeProj(b, cell = CELL) {
     px: lon => (lon - b.W) * mLon / cell, py: lat => (b.N - lat) * mLat / cell,
   };
 }
-export function makeGrid(proj) {
+export function makeGrid(proj, fill = 3) {
   const n = proj.w * proj.h;
-  return { proj, bio: new Uint8Array(n).fill(3), prio: new Uint8Array(n), riv: new Uint8Array(n), road: new Uint8Array(n), inside: null };
+  return { proj, bio: new Uint8Array(n).fill(fill), prio: new Uint8Array(n), riv: new Uint8Array(n), road: new Uint8Array(n), inside: null };
 }
 
 // biomer i spelet: 0 sjö, 1 vad/å, 3 gräs/åker, 4 skog, 6 berg, 8 myr, 9 bebyggelse, 10 utanför kommunen

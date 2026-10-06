@@ -12,9 +12,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 import crypto from 'node:crypto';
 fs.mkdirSync('data/cache', { recursive: true });
 // Varje svar cachas på disk, så ett avbrutet/begränsat körning kan återupptas utan att börja om.
+let missing = 0;
 async function overpass(q, tries = 8) {
   const cf = 'data/cache/' + crypto.createHash('sha1').update(q).digest('hex') + '.json';
-  if (fs.existsSync(cf)) return JSON.parse(fs.readFileSync(cf, 'utf8'));
+  if (fs.existsSync(cf)) { try { return JSON.parse(fs.readFileSync(cf, 'utf8')); } catch { /* halvskriven fil */ } }
+  if (CACHE_ONLY) { missing++; return []; }
   for (let a = 0; a < tries; a++) {
     for (const url of MIRRORS) {
       try {
@@ -29,6 +31,7 @@ async function overpass(q, tries = 8) {
   throw new Error('Overpass svarade inte – kör skriptet igen lite senare, det fortsätter där det slutade.');
 }
 
+const CACHE_ONLY = process.argv.includes('--delvis'); // bygg av det som redan finns i cachen, inga nya Overpass-anrop
 const QUICK = process.argv.includes('--snabb'); // hoppar över skogslagret; omärkt mark blir skog (typiskt för Sverige)
 const proj = makeProj(BBOX), grid = makeGrid(proj, QUICK ? 4 : 3);
 if (QUICK) console.log('SNABBLÄGE: skogslagret hoppas över, omärkt mark räknas som skog');
@@ -89,6 +92,8 @@ try {
   console.log('Höjddata klar');
 } catch (e) { console.warn('Höjddata misslyckades – platt terräng:', e.message); data.fill(200); }
 
+if (!places.some(p => p.n === 'Borås')) places.push({ n: 'Borås', t: 'city', lat: 57.721, lon: 12.940 });
+if (CACHE_ONLY) console.log(`DELVIS: ${missing} bitar saknas i cachen och är tomma (utan skog/bebyggelse där).`);
 const { data: out, stats } = finalize(grid, { bbox: BBOX, elev: { step, ew, eh, data }, places, pois });
 fs.mkdirSync('data', { recursive: true });
 fs.writeFileSync('data/boras-data.json', JSON.stringify(out));

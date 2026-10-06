@@ -71,6 +71,7 @@ h3{margin:0 0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;c
 <div id="banner"></div>
 <div id="help">WASD/pilar: ta över hjälten · dubbelklicka: ge order · dra: panorera · hjul: zoom · F: följ hjälten · mellanslag: paus · 1–5: hastighet</div>
 
+<script id="boras-data" type="application/json"></script>
 <script>
 'use strict';
 /* =====================================================================
@@ -121,9 +122,9 @@ const ERAS=[
    TERRÄNG (oändlig, chunk-baserad)
    ===================================================================== */
 // biomer: 0 djuphav,1 grunt vatten,2 sand,3 gräs,4 skog,5 torrt,6 berg,7 snö,8 tundra
-const BCOL=['#1d3f6e','#2f6fa0','#e0cf94','#5fa045','#3e7f38','#cdb06a','#8a8578','#f2f6fa','#a9bfae'].map(hex2rgb);
+const BCOL=['#1d3f6e','#2f6fa0','#e0cf94','#5fa045','#3e7f38','#cdb06a','#8a8578','#f2f6fa','#a9bfae','#a9a79c','#0e131c'].map(hex2rgb);
 let _e=0;
-function terrain(x,y){
+function terrainProc(x,y){
   const wx=x+(fbm(x/70,y/70,SEED+5,2)-.5)*50, wy=y+(fbm(x/70+9,y/70+9,SEED+6,2)-.5)*50;
   let e=fbm(wx/60,wy/60,SEED,5); e=clamp((e-.5)*2.0+.56,0,1); _e=e;
   const m=fbm(x/80,y/80,SEED+101,3), t=fbm(x/160,y/160,SEED+202,3);
@@ -131,6 +132,35 @@ function terrain(x,y){
   if(e>.93)return 7; if(e>.78)return 6;
   if(t<.41)return 8; if((t>.6&&m<.42)||m<.2)return 5;
   return m>.55?4:3;
+}
+/* ---------- Borås-läge: riktig karta (OpenStreetMap) ---------- */
+let BORAS=null;const REALPOI=new Map();
+function elevAt(x,y){const B=BORAS,fx=clamp(x/B.estep,0,B.ew-1.001),fy=clamp(y/B.estep,0,B.eh-1.001),x0=fx|0,y0=fy|0,u=fx-x0,v=fy-y0,E=B.elev,i=y0*B.ew+x0;
+  return lerp(lerp(E[i],E[i+1],u),lerp(E[i+B.ew],E[i+B.ew+1],u),v)}
+function terrainBoras(x,y){const B=BORAS;if(x<0||y<0||x>=B.w||y>=B.h){_e=.5;return 10}
+  _e=clamp(.3+(elevAt(x,y)-B.lo)/Math.max(1,B.hi-B.lo)*.5,0,1);return B.biome[y*B.w+x]}
+function terrain(x,y){return BORAS?terrainBoras(x,y):terrainProc(x,y)}
+const roadAt=(x,y)=>{if(!BORAS)return 0;x=Math.floor(x);y=Math.floor(y);return x<0||y<0||x>=BORAS.w||y>=BORAS.h?0:BORAS.road[y*BORAS.w+x]};
+function rleDecode(a,n){const o=new Uint8Array(n);let p=0;for(let i=0;i<a.length;i+=2){o.fill(a[i],p,p+a[i+1]);p+=a[i+1]}return o}
+const POI_TYPE={zoo:'mutagen',theme_park:'mutagen',museum:'ruin',castle:'ruin',ruins:'ruin',monument:'ruin',memorial:'ruin',manor:'ruin',archaeological_site:'ruin',attraction:'shrine',viewpoint:'shrine'};
+async function loadBoras(){
+  try{
+    let d=null;const el=document.getElementById('boras-data');
+    if(el&&el.textContent.trim())d=JSON.parse(el.textContent);
+    else if(params.get('procedural')!=='1'){const r=await fetch(params.get('data')||'data/boras-data.json');if(r.ok)d=await r.json()}
+    if(!d||d.v!==1)return;
+    BORAS={w:d.w,h:d.h,biome:rleDecode(d.biome,d.w*d.h),road:rleDecode(d.road,d.w*d.h),elev:d.elev,ew:d.ew,eh:d.eh,estep:d.estep,lo:d.lo,hi:d.hi,
+      places:d.places.map(p=>Object.assign({used:false},p)),name:d.name};
+    for(const p of d.pois)REALPOI.set(ckey(p.x>>4,p.y>>4),{x:p.x,y:p.y,type:POI_TYPE[p.k]||'ruin',usedAt:-1e9,name:p.n});
+    $('help').insertAdjacentHTML('beforeend',' · Karta © OpenStreetMap-bidragsgivare');
+  }catch(e){console.warn('Borås-data saknas – kör oändlig värld',e);BORAS=null}
+}
+function nameFor(x,y){
+  if(!BORAS)return townName();
+  let best=null,bd=1e9;
+  for(const p of BORAS.places){if(p.used)continue;const d=Math.hypot(p.x-x,p.y-y)-(p.t==='city'?30:p.t==='town'?15:0);if(d<bd){bd=d;best=p}}
+  if(best&&Math.hypot(best.x-x,best.y-y)<70){best.used=true;return best.n}
+  return townName();
 }
 const chunks=new Map(), ckey=(cx,cy)=>(cx+20000)*40001+(cy+20000);
 function getChunk(cx,cy){const k=ckey(cx,cy);let c=chunks.get(k);if(!c){c=genChunk(cx,cy);chunks.set(k,c)}return c}
@@ -149,8 +179,8 @@ function genChunk(cx,cy){
     }
     nk[i]=k;
   }
-  let poi=null;
-  if(hash2(cx,cy,SEED+7)<.38){
+  let poi=BORAS?(REALPOI.get(ckey(cx,cy))||null):null;
+  if(!BORAS&&hash2(cx,cy,SEED+7)<.38){
     const i=Math.floor(hash2(cx,cy,SEED+9)*256),bi=b[i];
     if(bi>=3&&bi!==7){
       const h=hash2(cx,cy,SEED+8);nk[i]=0;
@@ -168,9 +198,9 @@ function nodeAt(x,y){
   return k;
 }
 function depleteNode(x,y,regrow){depleted.set(x*100003+y,G.time+regrow)}
-function tileCost(x,y){const b=biomeAt(x,y);return b===0||b===7?0:b===1?3.5:b===6?1.6:b===4?1.2:1}
-function walkable(x,y,animal){const b=biomeAt(x,y);return b!==0&&b!==7&&(!animal||b!==1)}
-function speedMul(x,y){const b=biomeAt(x,y);return b===1?.55:b===6?.75:b===4?.88:1}
+function tileCost(x,y){const b=biomeAt(x,y);if(b===0||b===7||b>=10)return 0;return roadAt(x,y)===1?.65:b===1?3.5:b===6?1.6:b===4?1.2:1}
+function walkable(x,y,animal){const b=biomeAt(x,y);return b!==0&&b!==7&&b<10&&(!animal||b!==1)}
+function speedMul(x,y){const b=biomeAt(x,y);return roadAt(x,y)===1?1.35:b===1?.55:b===6?.75:b===4?.88:1}
 
 /* ---------- A* ---------- */
 function findPath(sx,sy,gx,gy,maxN=3000){
@@ -255,7 +285,7 @@ function newFaction(){
 function townsOf(f){return W.towns.filter(t=>t.f===f)}
 function canFound(x,y,minD=15){
   x=Math.floor(x);y=Math.floor(y);
-  for(let dx=-2;dx<=2;dx++)for(let dy=-2;dy<=2;dy++){const b=biomeAt(x+dx,y+dy);if(b<2||b===6||b===7||b===1)return false}
+  for(let dx=-2;dx<=2;dx++)for(let dy=-2;dy<=2;dy++){const b=biomeAt(x+dx,y+dy);if(b<2||b===6||b===7||b>=10)return false}
   for(const t of W.towns)if(Math.hypot(t.x-x,t.y-y)<minD)return false;
   for(const r of W.ruins)if(Math.hypot(r.x-x,r.y-y)<4)return false;
   return true;
@@ -265,7 +295,7 @@ function findSite(x,y,maxR=30,minD=15){
   return null;
 }
 function foundTown(x,y,f,pop){
-  const t={id:W.nextId++,name:townName(),x:Math.floor(x)+.5,y:Math.floor(y)+.5,f,pop,food:30+pop*4,wood:12,stone:6,
+  const t={id:W.nextId++,name:nameFor(x,y),x:Math.floor(x)+.5,y:Math.floor(y)+.5,f,pop,food:30+pop*4,wood:12,stone:6,
     buildings:[{kind:'hall',x:Math.floor(x)+.5,y:Math.floor(y)+.5,v:Math.random()}],build:null,slots:0,born:G.time,cap:8,lastSettle:G.time+rnd(30,90),war:0};
   for(let dx=-3;dx<=3;dx++)for(let dy=-3;dy<=3;dy++)depleteNode(Math.floor(x)+dx,Math.floor(y)+dy,1e12);
   W.towns.push(t);return t;
@@ -592,11 +622,11 @@ function poiTask(){
 function usePoi(p){
   p.usedAt=G.time;hero.visited++;
   if(p.type==='ruin'){const g=Math.floor(rnd(12,45));hero.gold+=g;gainXp(35);floater(p.x,p.y,`+${g} guld`,'#ffd45a');
-    logEv(`🏺 ${hero.name} plundrar en ruin och finner ${g} guld`);
+    logEv(`🏺 ${hero.name} utforskar ${p.name||'en ruin'} och finner ${g} guld`);
     if(Math.random()<.25&&hero.home){hero.home.f.tech+=40;logEv('📜 Uråldriga ritningar ger teknikframsteg!')}}
   else if(p.type==='shrine'){hero.hp=hero.maxHp;hero.energy=100;const s=pick(['str','agi','wis','cha']);hero.stats[s]++;gainXp(25);
-    spawnParts(p.x,p.y,30,{col:'#fff3a0',h:8,add:true,life:1.6});logEv(`✨ ${hero.name} välsignas vid en helgedom`)}
-  else{ if(Math.random()<.65){giveTrait()}else{hero.hp-=30;floater(p.x,p.y,'Giftigt!','#9dff6b');logEv('☣ Det konstiga skenet var giftigt…')}gainXp(20)}
+    spawnParts(p.x,p.y,30,{col:'#fff3a0',h:8,add:true,life:1.6});logEv(`✨ ${hero.name} välsignas vid ${p.name||'en helgedom'}`)}
+  else{ if(p.name)logEv(`🧬 Något märkligt rör sig vid ${p.name}…`);if(Math.random()<.65){giveTrait()}else{hero.hp-=30;floater(p.x,p.y,'Giftigt!','#9dff6b');logEv('☣ Det konstiga skenet var giftigt…')}gainXp(20)}
 }
 function taskEat(){
   const h=hero;
@@ -867,6 +897,7 @@ function renderChunk(c){
     else if(b===2||b===5){g.fillStyle='rgba(120,90,40,.22)';for(let j=0;j<4;j++){g.fillRect(px+hash2(wx*5+j,wy,SEED+3)*TILE,py+hash2(wx,wy*5+j,SEED+4)*TILE,2,2)}}
     else if(b===6){g.strokeStyle='rgba(40,38,34,.25)';g.lineWidth=1.5;g.beginPath();const sx=px+h*20+4,sy=py+8;g.moveTo(sx,sy);g.lineTo(sx+8,sy+10);g.lineTo(sx+3,sy+16);g.stroke();
       g.fillStyle='rgba(255,255,255,.1)';g.fillRect(px+4,py+2,10,3)}
+    else if(b===9){g.fillStyle='rgba(50,50,50,.07)';g.fillRect(px+3,py+TILE*.5,TILE-6,1);g.fillRect(px+TILE*.5,py+3,1,TILE-6)}
     else if(b===7){g.fillStyle='rgba(120,170,220,.18)';g.fillRect(px+hash2(wx,wy,SEED+6)*TILE,py+hash2(wx,wy,SEED+7)*TILE,6,2)}
   }
   // stränder
@@ -878,6 +909,17 @@ function renderChunk(c){
         if(n===0)g.fillRect(px,py,TILE,4);if(n===2)g.fillRect(px,py+TILE-4,TILE,4);if(n===3)g.fillRect(px,py,4,TILE);if(n===1)g.fillRect(px+TILE-4,py,4,TILE)}
       else if(b>=2&&ob<=1&&b!==7){g.fillStyle='rgba(60,45,20,.18)';const px=tx*TILE,py=ty*TILE;
         if(n===0)g.fillRect(px,py,TILE,3);if(n===2)g.fillRect(px,py+TILE-3,TILE,3);if(n===3)g.fillRect(px,py,3,TILE);if(n===1)g.fillRect(px+TILE-3,py,3,TILE)}}
+  }
+  if(BORAS){
+    const nbs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+    for(const pass of [0,1])for(let ty=0;ty<CS;ty++)for(let tx=0;tx<CS;tx++){
+      const wx=c.cx*CS+tx,wy=c.cy*CS+ty,r=roadAt(wx,wy);if(!r)continue;
+      const cx0=tx*TILE+TILE/2,cy0=ty*TILE+TILE/2;g.lineCap='round';
+      g.strokeStyle=r===1?(pass?'#d9d2bd':'#6b6558'):(pass?'#6a6a6a':'#222');g.lineWidth=r===1?(pass?9:13):(pass?3:6);
+      g.setLineDash(r===2&&pass?[4,5]:[]);g.beginPath();g.moveTo(cx0,cy0);let any=false;
+      for(const [dx,dy] of nbs)if(roadAt(wx+dx,wy+dy)===r){g.moveTo(cx0,cy0);g.lineTo(cx0+dx*TILE/2,cy0+dy*TILE/2);any=true}
+      if(!any)g.lineTo(cx0+.01,cy0);g.stroke()}
+    g.setLineDash([]);
   }
   c.canvas=cvs;
 }
@@ -1113,6 +1155,9 @@ function render(rdt){
     const n=Math.floor(260*G.rain);for(let i=0;i<n;i++){const x=Math.random()*VW,y=Math.random()*VH;ctx.moveTo(x,y);ctx.lineTo(x-4,y+12)}ctx.stroke()}
   if(G.flash>0){ctx.fillStyle=`rgba(255,255,255,${G.flash*.55})`;ctx.fillRect(0,0,VW,VH)}
   // etiketter
+  if(BORAS&&Z>.45){ctx.textAlign='center';ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,.55)';
+    for(const p of BORAS.places){if(p.x<x0-8||p.x>x1+8||p.y<y0-3||p.y>y1+3)continue;if(W.towns.some(t=>t.name===p.n))continue;
+      ctx.font=`600 ${p.t==='city'?15:p.t==='town'?13:11}px sans-serif`;ctx.fillStyle='rgba(255,255,255,.72)';ctx.strokeText(p.n,sx(p.x),sy(p.y));ctx.fillText(p.n,sx(p.x),sy(p.y))}}
   ctx.textAlign='left';
   if(Z>.55){for(const tw of W.towns){if(tw.x<x0||tw.x>x1||tw.y<y0-3||tw.y>y1+3)continue;
     const px=sx(tw.x),py=sy(tw.y)-(tw.f.era>=6?70:52)*Z;ctx.font=`600 ${Math.max(10,11.5*Z*.85)}px sans-serif`;
@@ -1144,7 +1189,7 @@ function hud(){
    ${h.traits.length?`<div class="chips">${h.traits.map(k=>`<span class="chip mut">🧬 ${HTRAITS[k].name}</span>`).join('')}</div>`:''}
    <div id="action">▸ ${tn}</div>`;
   const ph=(G.time/DAY)%1,l=lightLevel(ph);
-  $('date').textContent=`År ${year()}`;
+  $('date').textContent=`${BORAS?'Borås · ':''}År ${year()}`;
   const heroEra=hero.home?hero.home.f.era:G.maxEra;$('era').textContent=ERAS[heroEra].name;
   $('tod').textContent=(l<.3?'🌙':l<.6?(ph<.5?'🌅':'🌇'):'☀')+(G.rain>.4?' 🌧':'')+(G.mutStorm>0?' 🧬':'')+(G.drought>0?' 🔥':'');
   $('spd').innerHTML=[0,1,2,4,8,16].map(s=>`<button class="btn ${((s===0&&G.paused)||(!G.paused&&G.speed===s))?'on':''}" data-s="${s}">${s===0?'⏸':s+'×'}</button>`).join(' ');
@@ -1230,7 +1275,21 @@ function clickAt(px,py){
 /* =====================================================================
    START
    ===================================================================== */
+function initBoras(){
+  const c=BORAS.places.find(p=>p.n==='Borås')||{x:BORAS.w/2,y:BORAS.h/2};
+  const site=findSite(c.x,c.y,25,0)||[Math.floor(c.x),Math.floor(c.y)];
+  hero=newHero(site[0]+.5,site[1]+1.5);cam.x=hero.x;cam.y=hero.y;
+  const f=newFaction(),t=foundTown(site[0],site[1],f,8);hero.home=t;
+  const others=BORAS.places.filter(p=>!p.used&&['town','village','suburb'].includes(p.t)&&Math.hypot(p.x-c.x,p.y-c.y)>60).sort(()=>Math.random()-.5).slice(0,3);
+  for(const p of others){const st=findSite(p.x,p.y,6,20);if(st)foundTown(st[0],st[1],newFaction(),6)}
+  for(let i=0;i<30;i++)manageAnimals();
+  for(let i=0;i<4;i++)manageVillagers();
+  logEv(`${hero.name} grundar ${t.name} – en värld som ser ut som Borås kommun.`);
+  logEv('Städer får riktiga ortsnamn. Hjälten spelar själv; ta över med WASD.');
+  setTimeout(()=>banner(t.name,'Trogen karta · Borås kommun'),400);
+}
 function init(){
+  if(BORAS)return initBoras();
   let sx=0,sy=0,ok=false;
   const greenScore=(x,y)=>{let n=0;for(let dx=-6;dx<=6;dx+=2)for(let dy=-6;dy<=6;dy+=2){const bb=biomeAt(x+dx,y+dy);if(bb===3||bb===4)n++}return n};
   let bestS=-1;
@@ -1247,8 +1306,6 @@ function init(){
   logEv('Hjälten spelar själv. Ta över med WASD, eller se vad som händer.');
   setTimeout(()=>banner('Evigheten','En värld som lever'),400);
 }
-init();
-for(let i=0;i<20;i++)heroThink();
 
 let last=performance.now(),acc=0,hudT=0;
 function frame(now){
@@ -1259,7 +1316,8 @@ function frame(now){
   mmT+=rdt;if(mmT>1.2){mmT=0;drawMini()}
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+async function boot(){await loadBoras();init();for(let i=0;i<20;i++)heroThink();requestAnimationFrame(frame)}
+boot();
 window.__G=G;window.__W=W;window.__hero=()=>hero;
 </script>
 </body>
